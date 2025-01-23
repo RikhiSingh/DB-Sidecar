@@ -14,3 +14,38 @@ export const workspaces = pgTable("workspaces", {
   logo: text("logo").notNull(),
   bannerUrl: text("banner_url").notNull(),
 });
+
+export const folders = pgTable("folders", {
+  id: uuid("id").defaultRandom().primaryKey().notNull(),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  title: text("title").notNull(),
+  iconId: text("icon_id").notNull(),
+  data: text("data").notNull(),
+  inTrash: text("in_trash").notNull(),
+  bannerUrl: text("banner_url").notNull(),
+  workspaceId: uuid("workspace_id").references(() => workspaces.id, {
+    onDelete: "cascade",
+  }),
+});
+
+export const files = pgTable("files", {
+  id: uuid("id").defaultRandom().primaryKey().notNull(),
+  createdAt: timestamp("created_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  title: text("title").notNull(),
+  iconId: text("icon_id").notNull(),
+  data: text("data").notNull(),
+  inTrash: text("in_trash").notNull(),
+  bannerUrl: text("banner_url").notNull(),
+  workspaceId: uuid("workspace_id").references(() => workspaces.id, {
+    onDelete: "cascade",
+  }),
+  folderId: uuid("folder_id").references(() => folders.id, {
+    onDelete: "cascade",
+  }),
+});

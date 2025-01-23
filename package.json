@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "push": "drizzle-kit push",
-    "pull": "drizzle-kit introspect:pg ",
+    "pull": "drizzle-kit introspect",
     "generate": "drizzle-kit generate",
     "drop": "drizzle-kit drop",
     "check": "drizzle-kit check:pg",
