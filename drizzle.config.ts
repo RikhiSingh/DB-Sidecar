@@ -11,6 +11,10 @@ export default defineConfig({
   schema: "./src/lib/supabase/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.DATABASE_URL!,
+    database: "postgres",
+    port: 5432,
+    host: "aws-0-us-west-1.pooler.supabase.com",
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
   },
 });
