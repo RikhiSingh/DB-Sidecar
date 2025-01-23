@@ -1,0 +1,5 @@
+export const usersInAuth = pgTable("users_in_auth", {
+  id: uuid().primaryKey().notNull(),
+});
+
+temp created to fix import build issue in relations
