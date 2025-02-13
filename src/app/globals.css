@@ -2,10 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
-html,body{
+html,
+body,
+:root {
   height: 100%;
 }
-
 
 @layer base {
   :root {
@@ -64,16 +65,15 @@ html,body{
   }
 }
 
-
-.animate-slide{
+.animate-slide {
   animation: 15s slide linear infinite;
 }
 
-@keyframes slide{
-  from{
+@keyframes slide {
+  from {
     transform: translateX(0);
   }
-  to{
+  to {
     transform: translateX(-100%);
   }
 }
