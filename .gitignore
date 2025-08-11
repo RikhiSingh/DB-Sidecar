@@ -1,0 +1,9 @@
+/target/
+/.vscode/
+/.idea/
+**/*.rs.bk
+/.env
+/data/
+openapi.json
+
+

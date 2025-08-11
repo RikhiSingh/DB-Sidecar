@@ -1,0 +1,28 @@
+### Health
+GET http://localhost:8080/health
+
+### Bootstrap
+POST http://localhost:8080/v1/bootstrap
+Content-Type: application/json
+
+{}
+
+### Refresh
+POST http://localhost:8080/v1/refresh
+Content-Type: application/json
+
+{}
+
+### List schema
+GET http://localhost:8080/v1/schema/1
+
+### Ask
+POST http://localhost:8080/v1/ask
+Content-Type: application/json
+
+{
+  "question": "List the last 10 users",
+  "role": "analyst"
+}
+
+
