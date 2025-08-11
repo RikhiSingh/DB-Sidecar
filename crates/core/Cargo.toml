@@ -31,5 +31,6 @@ chrono = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
 bytemuck = { workspace = true }
+reqwest = { workspace = true }
 
 

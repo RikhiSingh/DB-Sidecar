@@ -1,6 +1,6 @@
 use crate::catalog::pg::PgCatalogProvider;
 use crate::catalog::CatalogProvider;
-use crate::embed::{build_embedding_provider_from_config, build_input_text, EmbeddingProvider};
+use crate::embed::{build_embedding_provider_from_config, build_input_text};
 use crate::fingerprint::merkle::merkle_root;
 use crate::repo::sqlite::SqliteRepo;
 use crate::stats;
