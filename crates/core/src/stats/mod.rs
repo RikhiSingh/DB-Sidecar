@@ -1,6 +1,6 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
-use regex::Regex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectStat {
@@ -9,13 +9,17 @@ pub struct ObjectStat {
     pub value: String,
 }
 
-pub async fn collect_basic_stats(pool: &Pool<Postgres>, schema: &str, table: &str) -> anyhow::Result<Vec<ObjectStat>> {
+pub async fn collect_basic_stats(
+    pool: &Pool<Postgres>,
+    schema: &str,
+    table: &str,
+) -> anyhow::Result<Vec<ObjectStat>> {
     let est_rows: i64 = sqlx::query_scalar(
         r#"
         SELECT reltuples::bigint FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND c.relname = $2
-        "#
+        "#,
     )
     .bind(schema)
     .bind(table)
@@ -23,7 +27,11 @@ pub async fn collect_basic_stats(pool: &Pool<Postgres>, schema: &str, table: &st
     .await?
     .unwrap_or(0i64);
 
-    Ok(vec![ObjectStat { object: format!("{}.{}", schema, table), metric: "estimated_rows".into(), value: est_rows.to_string() }])
+    Ok(vec![ObjectStat {
+        object: format!("{}.{}", schema, table),
+        metric: "estimated_rows".into(),
+        value: est_rows.to_string(),
+    }])
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,13 +48,17 @@ pub struct TableStatsSummary {
     pub columns: Vec<ColumnStat>,
 }
 
-pub async fn collect_pg_stats(pool: &Pool<Postgres>, schema: &str, table: &str) -> anyhow::Result<TableStatsSummary> {
+pub async fn collect_pg_stats(
+    pool: &Pool<Postgres>,
+    schema: &str,
+    table: &str,
+) -> anyhow::Result<TableStatsSummary> {
     let est_rows: i64 = sqlx::query_scalar(
         r#"
         SELECT reltuples::bigint FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND c.relname = $2
-        "#
+        "#,
     )
     .bind(schema)
     .bind(table)
@@ -77,10 +89,18 @@ pub async fn collect_pg_stats(pool: &Pool<Postgres>, schema: &str, table: &str) 
         let column: String = r.try_get("column").unwrap_or_default();
         let null_frac: Option<f64> = r.try_get("null_frac").ok();
         let n_distinct: Option<f64> = r.try_get("n_distinct").ok();
-        columns.push(ColumnStat { column, null_frac: null_frac.unwrap_or(0.0), n_distinct: n_distinct.unwrap_or(0.0) });
+        columns.push(ColumnStat {
+            column,
+            null_frac: null_frac.unwrap_or(0.0),
+            n_distinct: n_distinct.unwrap_or(0.0),
+        });
     }
 
-    Ok(TableStatsSummary { object: format!("{}.{}", schema, table), estimated_rows: est_rows, columns })
+    Ok(TableStatsSummary {
+        object: format!("{}.{}", schema, table),
+        estimated_rows: est_rows,
+        columns,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,16 +144,27 @@ pub async fn sample_table_with_masking(
         .unwrap_or_else(|| Vec::new());
 
     let masked_rows = apply_masking(json_rows, masking_rules)?;
-    Ok(SampledTable { object: qualified, column_names, rows: masked_rows })
+    Ok(SampledTable {
+        object: qualified,
+        column_names,
+        rows: masked_rows,
+    })
 }
 
-fn apply_masking(rows: Vec<serde_json::Value>, masking_rules: Option<&str>) -> anyhow::Result<Vec<serde_json::Value>> {
-    if masking_rules.is_none() { return Ok(rows); }
+fn apply_masking(
+    rows: Vec<serde_json::Value>,
+    masking_rules: Option<&str>,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    if masking_rules.is_none() {
+        return Ok(rows);
+    }
     let rules_str = masking_rules.unwrap();
     // Masking rule format: comma-separated regex=kind pairs, e.g. "email=.*email.*,name=.*name.*"
     let mut column_to_kind: Vec<(Regex, String)> = Vec::new();
     for part in rules_str.split(',') {
-        if part.trim().is_empty() { continue; }
+        if part.trim().is_empty() {
+            continue;
+        }
         if let Some((lhs, rhs)) = part.split_once('=') {
             if let Ok(re) = Regex::new(lhs.trim()) {
                 column_to_kind.push((re, rhs.trim().to_string()));
@@ -160,7 +191,7 @@ fn apply_masking(rows: Vec<serde_json::Value>, masking_rules: Option<&str>) -> a
     Ok(masked)
 }
 
-fn mask_value(value: &serde_json::Value, kind: &str) -> serde_json::Value {
+fn mask_value(_value: &serde_json::Value, kind: &str) -> serde_json::Value {
     match kind {
         "email" => serde_json::Value::String("***@***".to_string()),
         "name" => serde_json::Value::String("REDACTED".to_string()),
@@ -169,5 +200,3 @@ fn mask_value(value: &serde_json::Value, kind: &str) -> serde_json::Value {
         _ => serde_json::Value::String("***".to_string()),
     }
 }
-
-

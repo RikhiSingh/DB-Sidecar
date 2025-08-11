@@ -4,24 +4,37 @@ use crate::fingerprint::merkle::merkle_root;
 use crate::repo::sqlite::SqliteRepo;
 use crate::stats;
 use crate::Config;
+use once_cell::sync::OnceCell;
 use sqlx::{postgres::PgListener, Pool, Postgres};
+use tokio::time::{sleep, Duration};
 use tracing::info;
 use uuid::Uuid;
-use tokio::time::{sleep, Duration};
-use once_cell::sync::OnceCell;
-use once_cell::sync::Lazy;
 use regex::Regex;
 
 pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
     let pool = get_pg_pool(cfg).await?;
     let provider = PgCatalogProvider::new(pool.clone());
     let objects = provider.snapshot().await?;
-    let leaves: Vec<(String, String)> = objects.iter().map(|o| (o.qualified_name.clone(), o.hash.clone())).collect();
+    let leaves: Vec<(String, String)> = objects
+        .iter()
+        .map(|o| (o.qualified_name.clone(), o.hash.clone()))
+        .collect();
     let root = merkle_root(leaves);
     let repo = SqliteRepo::open(&cfg.sidecar_db).await?;
     repo.migrate().await?;
     let version = repo.get_next_version().await?;
-    let rows: Vec<(&Uuid, &str, &str, &str, &str)> = objects.iter().map(|o| (&o.id, kind_str(o.kind), o.qualified_name.as_str(), o.canonical_ddl.as_str(), o.hash.as_str())).collect();
+    let rows: Vec<(&Uuid, &str, &str, &str, &str)> = objects
+        .iter()
+        .map(|o| {
+            (
+                &o.id,
+                kind_str(o.kind),
+                o.qualified_name.as_str(),
+                o.canonical_ddl.as_str(),
+                o.hash.as_str(),
+            )
+        })
+        .collect();
     repo.upsert_objects(version, &rows).await?;
     repo.insert_schema_version(version, &root).await?;
 
@@ -31,19 +44,45 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
             if let Some((schema, table)) = o.qualified_name.split_once('.') {
                 if let Ok(summary) = stats::collect_pg_stats(&pool, schema, table).await {
                     let object_id_owned = o.id.to_string();
-                    let _ = repo.insert_object_stat(object_id_owned.as_str(), "estimated_rows", summary.estimated_rows.to_string().as_str());
+                    let _ = repo.insert_object_stat(
+                        object_id_owned.as_str(),
+                        "estimated_rows",
+                        summary.estimated_rows.to_string().as_str(),
+                    );
                     for c in summary.columns {
                         let metric1 = format!("pg_stats:{}:null_frac", c.column);
                         let metric2 = format!("pg_stats:{}:n_distinct", c.column);
-                        let _ = repo.insert_object_stat(object_id_owned.as_str(), metric1.as_str(), format!("{}", c.null_frac).as_str());
-                        let _ = repo.insert_object_stat(object_id_owned.as_str(), metric2.as_str(), format!("{}", c.n_distinct).as_str());
+                        let _ = repo.insert_object_stat(
+                            object_id_owned.as_str(),
+                            metric1.as_str(),
+                            format!("{}", c.null_frac).as_str(),
+                        );
+                        let _ = repo.insert_object_stat(
+                            object_id_owned.as_str(),
+                            metric2.as_str(),
+                            format!("{}", c.n_distinct).as_str(),
+                        );
                     }
                 }
                 if cfg.sample_rows > 0 {
-                    if let Ok(sample) = stats::sample_table_with_masking(&pool, schema, table, cfg.sample_rows, cfg.masking_rules.as_deref()).await {
-                        let cols_json = serde_json::to_string(&sample.column_names).unwrap_or("[]".to_string());
-                        let rows_json = serde_json::to_string(&sample.rows).unwrap_or("[]".to_string());
-                        let _ = repo.upsert_samples(o.id.to_string().as_str(), cols_json.as_str(), rows_json.as_str());
+                    if let Ok(sample) = stats::sample_table_with_masking(
+                        &pool,
+                        schema,
+                        table,
+                        cfg.sample_rows,
+                        cfg.masking_rules.as_deref(),
+                    )
+                    .await
+                    {
+                        let cols_json =
+                            serde_json::to_string(&sample.column_names).unwrap_or("[]".to_string());
+                        let rows_json =
+                            serde_json::to_string(&sample.rows).unwrap_or("[]".to_string());
+                        let _ = repo.upsert_samples(
+                            o.id.to_string().as_str(),
+                            cols_json.as_str(),
+                            rows_json.as_str(),
+                        );
                     }
                 }
             }
@@ -72,13 +111,28 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
     let mut leaves = Vec::new();
     for o in &now_objects {
         leaves.push((o.qualified_name.clone(), o.hash.clone()));
-        if prior.get(&o.qualified_name).map(|h| h != &o.hash).unwrap_or(true) {
+        if prior
+            .get(&o.qualified_name)
+            .map(|h| h != &o.hash)
+            .unwrap_or(true)
+        {
             changed.push(o.id);
         }
     }
     let root = merkle_root(leaves);
     let version = repo.get_next_version().await?;
-    let rows: Vec<(&Uuid, &str, &str, &str, &str)> = now_objects.iter().map(|o| (&o.id, kind_str(o.kind), o.qualified_name.as_str(), o.canonical_ddl.as_str(), o.hash.as_str())).collect();
+    let rows: Vec<(&Uuid, &str, &str, &str, &str)> = now_objects
+        .iter()
+        .map(|o| {
+            (
+                &o.id,
+                kind_str(o.kind),
+                o.qualified_name.as_str(),
+                o.canonical_ddl.as_str(),
+                o.hash.as_str(),
+            )
+        })
+        .collect();
     repo.upsert_objects(version, &rows).await?;
     repo.insert_schema_version(version, &root).await?;
 
@@ -89,19 +143,45 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
             if let Some((schema, table)) = o.qualified_name.split_once('.') {
                 if let Ok(summary) = stats::collect_pg_stats(&pool2, schema, table).await {
                     let object_id_owned = o.id.to_string();
-                    let _ = repo.insert_object_stat(object_id_owned.as_str(), "estimated_rows", summary.estimated_rows.to_string().as_str());
+                    let _ = repo.insert_object_stat(
+                        object_id_owned.as_str(),
+                        "estimated_rows",
+                        summary.estimated_rows.to_string().as_str(),
+                    );
                     for c in summary.columns {
                         let metric1 = format!("pg_stats:{}:null_frac", c.column);
                         let metric2 = format!("pg_stats:{}:n_distinct", c.column);
-                        let _ = repo.insert_object_stat(object_id_owned.as_str(), metric1.as_str(), format!("{}", c.null_frac).as_str());
-                        let _ = repo.insert_object_stat(object_id_owned.as_str(), metric2.as_str(), format!("{}", c.n_distinct).as_str());
+                        let _ = repo.insert_object_stat(
+                            object_id_owned.as_str(),
+                            metric1.as_str(),
+                            format!("{}", c.null_frac).as_str(),
+                        );
+                        let _ = repo.insert_object_stat(
+                            object_id_owned.as_str(),
+                            metric2.as_str(),
+                            format!("{}", c.n_distinct).as_str(),
+                        );
                     }
                 }
                 if cfg.sample_rows > 0 {
-                    if let Ok(sample) = stats::sample_table_with_masking(&pool2, schema, table, cfg.sample_rows, cfg.masking_rules.as_deref()).await {
-                        let cols_json = serde_json::to_string(&sample.column_names).unwrap_or("[]".to_string());
-                        let rows_json = serde_json::to_string(&sample.rows).unwrap_or("[]".to_string());
-                        let _ = repo.upsert_samples(o.id.to_string().as_str(), cols_json.as_str(), rows_json.as_str());
+                    if let Ok(sample) = stats::sample_table_with_masking(
+                        &pool2,
+                        schema,
+                        table,
+                        cfg.sample_rows,
+                        cfg.masking_rules.as_deref(),
+                    )
+                    .await
+                    {
+                        let cols_json =
+                            serde_json::to_string(&sample.column_names).unwrap_or("[]".to_string());
+                        let rows_json =
+                            serde_json::to_string(&sample.rows).unwrap_or("[]".to_string());
+                        let _ = repo.upsert_samples(
+                            o.id.to_string().as_str(),
+                            cols_json.as_str(),
+                            rows_json.as_str(),
+                        );
                     }
                 }
             }
@@ -109,7 +189,10 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
     }
 
     info!(version, merkle_root=%root, changed=%changed.len(), "refresh complete");
-    Ok(RefreshResult { version, changed_ids: changed })
+    Ok(RefreshResult {
+        version,
+        changed_ids: changed,
+    })
 }
 
 fn kind_str(k: crate::catalog::ObjectKind) -> &'static str {
@@ -127,7 +210,9 @@ static WATCHERS_ONCE: OnceCell<()> = OnceCell::new();
 
 /// Spawn polling and optional NOTIFY listeners for change detection (once per process).
 pub async fn run_background_watchers(cfg: &Config) {
-    if WATCHERS_ONCE.get().is_some() { return; }
+    if WATCHERS_ONCE.get().is_some() {
+        return;
+    }
     let _ = WATCHERS_ONCE.set(());
 
     if cfg.bootstrap_on_start {
@@ -219,16 +304,20 @@ fn sanitize_channel(input: &str) -> String {
     // Allow only [A-Za-z0-9_], else fallback to default
     static RE: OnceCell<Regex> = OnceCell::new();
     let re = RE.get_or_init(|| Regex::new(r"^[A-Za-z0-9_]+$").unwrap());
-    if re.is_match(input) { input.to_string() } else { "feytra_ddl".to_string() }
+    if re.is_match(input) {
+        input.to_string()
+    } else {
+        "feytra_ddl".to_string()
+    }
 }
 
 // Shared Postgres pool (clone is cheap). Ensures one pool per process.
 static PG_POOL: OnceCell<Pool<Postgres>> = OnceCell::new();
 async fn get_pg_pool(cfg: &Config) -> anyhow::Result<Pool<Postgres>> {
-    if let Some(pool) = PG_POOL.get() { return Ok(pool.clone()); }
+    if let Some(pool) = PG_POOL.get() {
+        return Ok(pool.clone());
+    }
     let pool = Pool::<Postgres>::connect(&cfg.database_url).await?;
     let _ = PG_POOL.set(pool.clone());
     Ok(pool)
 }
-
-

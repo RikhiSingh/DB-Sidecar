@@ -87,4 +87,5 @@ Success criteria v0.1
 - GET /v1/schema/{version} lists objects.
 - cargo test passes; clippy clean.
 
-
+Notes:
+We are developing on Windows 11 and our IDE is VS Code
