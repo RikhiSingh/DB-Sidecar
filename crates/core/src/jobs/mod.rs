@@ -18,12 +18,12 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
     let objects = provider.snapshot().await?;
     let leaves: Vec<(String, String)> = objects.iter().map(|o| (o.qualified_name.clone(), o.hash.clone())).collect();
     let root = merkle_root(leaves);
-    let repo = SqliteRepo::open(&cfg.sidecar_db)?;
-    repo.migrate()?;
-    let version = repo.get_next_version()?;
+    let repo = SqliteRepo::open(&cfg.sidecar_db).await?;
+    repo.migrate().await?;
+    let version = repo.get_next_version().await?;
     let rows: Vec<(&Uuid, &str, &str, &str, &str)> = objects.iter().map(|o| (&o.id, kind_str(o.kind), o.qualified_name.as_str(), o.canonical_ddl.as_str(), o.hash.as_str())).collect();
-    repo.upsert_objects(version, &rows)?;
-    repo.insert_schema_version(version, &root)?;
+    repo.upsert_objects(version, &rows).await?;
+    repo.insert_schema_version(version, &root).await?;
 
     // Collect stats and samples for tables
     for o in &objects {
@@ -63,10 +63,10 @@ pub struct RefreshResult {
 pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
     let pool = get_pg_pool(cfg).await?;
     let provider = PgCatalogProvider::new(pool);
-    let repo = SqliteRepo::open(&cfg.sidecar_db)?;
-    repo.migrate()?;
+    let repo = SqliteRepo::open(&cfg.sidecar_db).await?;
+    repo.migrate().await?;
 
-    let prior = repo.fetch_latest_hashes()?; // qualified_name -> hash
+    let prior = repo.fetch_latest_hashes().await?; // qualified_name -> hash
     let now_objects = provider.snapshot().await?;
     let mut changed = Vec::new();
     let mut leaves = Vec::new();
@@ -77,10 +77,10 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
         }
     }
     let root = merkle_root(leaves);
-    let version = repo.get_next_version()?;
+    let version = repo.get_next_version().await?;
     let rows: Vec<(&Uuid, &str, &str, &str, &str)> = now_objects.iter().map(|o| (&o.id, kind_str(o.kind), o.qualified_name.as_str(), o.canonical_ddl.as_str(), o.hash.as_str())).collect();
-    repo.upsert_objects(version, &rows)?;
-    repo.insert_schema_version(version, &root)?;
+    repo.upsert_objects(version, &rows).await?;
+    repo.insert_schema_version(version, &root).await?;
 
     // Collect stats and samples for tables (could optimize by changed set)
     let pool2 = get_pg_pool(cfg).await?;

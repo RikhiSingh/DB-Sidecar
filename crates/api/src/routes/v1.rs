@@ -68,8 +68,8 @@ pub async fn refresh(axum::extract::State(state): axum::extract::State<AppState>
 
 #[utoipa::path(get, path = "/v1/schema/{version}")]
 pub async fn get_schema(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(version): axum::extract::Path<i64>) -> Json<SchemaSummary> {
-    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
-    let rows = repo.fetch_objects_for_version(version).unwrap_or_default();
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).await.unwrap();
+    let rows = repo.fetch_objects_for_version(version).await.unwrap_or_default();
     let objects: Vec<ObjectResponse> = rows.into_iter().map(|(id, kind, qualified_name, canonical_ddl)| {
         ObjectResponse { id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()), kind, qualified_name, canonical_ddl }
     }).collect();
@@ -78,8 +78,8 @@ pub async fn get_schema(axum::extract::State(state): axum::extract::State<AppSta
 
 #[utoipa::path(get, path = "/v1/objects/{id}")]
 pub async fn get_object(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<ObjectResponse> {
-    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
-    if let Some((kind, qualified_name, canonical_ddl)) = repo.fetch_object_by_id(&id.to_string()).unwrap_or(None) {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).await.unwrap();
+    if let Some((kind, qualified_name, canonical_ddl)) = repo.fetch_object_by_id(&id.to_string()).await.unwrap_or(None) {
         Json(ObjectResponse { id, kind, qualified_name, canonical_ddl })
     } else {
         Json(ObjectResponse { id, kind: "unknown".into(), qualified_name: "".into(), canonical_ddl: "".into() })
@@ -88,16 +88,16 @@ pub async fn get_object(axum::extract::State(state): axum::extract::State<AppSta
 
 #[utoipa::path(get, path = "/v1/objects/{id}/stats")]
 pub async fn get_object_stats(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<serde_json::Value> {
-    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
-    let stats = repo.fetch_stats_for_object(&id.to_string(), 500).unwrap_or_default();
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).await.unwrap();
+    let stats = repo.fetch_stats_for_object(&id.to_string(), 500).await.unwrap_or_default();
     let arr: Vec<serde_json::Value> = stats.into_iter().map(|(metric, value, ts)| serde_json::json!({"metric": metric, "value": value, "collected_at": ts})).collect();
     Json(serde_json::json!({"object_id": id, "stats": arr}))
 }
 
 #[utoipa::path(get, path = "/v1/objects/{id}/sample")]
 pub async fn get_object_sample(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<serde_json::Value> {
-    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
-    if let Some((cols, rows, when)) = repo.fetch_latest_samples(&id.to_string()).unwrap_or(None) {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).await.unwrap();
+    if let Some((cols, rows, when)) = repo.fetch_latest_samples(&id.to_string()).await.unwrap_or(None) {
         let column_names: Vec<String> = serde_json::from_str(&cols).unwrap_or_default();
         let rows_json: serde_json::Value = serde_json::from_str(&rows).unwrap_or(serde_json::json!([]));
         Json(serde_json::json!({"object_id": id, "sampled_at": when, "column_names": column_names, "rows": rows_json}))
