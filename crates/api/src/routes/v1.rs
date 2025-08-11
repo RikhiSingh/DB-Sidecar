@@ -1,6 +1,6 @@
 use axum::{routing::{get, post}, Json, Router};
-use feytra-core::{jobs, Config};
-use feytra-core::repo::sqlite::SqliteRepo;
+use feytra_core::{jobs, Config};
+use feytra_core::repo::sqlite::SqliteRepo;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;

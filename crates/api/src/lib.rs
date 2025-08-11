@@ -1,5 +1,5 @@
 use axum::{routing::{get, post}, Router};
-use feytra-core::Config;
+use feytra_core::Config;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 

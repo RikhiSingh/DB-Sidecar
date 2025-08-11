@@ -14,7 +14,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
-sqlx = { version = "0.7", default-features = false, features = ["postgres", "runtime-tokio-native-tls", "macros", "chrono", "json"] }
+sqlx = { version = "0.7", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-native-tls", "macros", "chrono", "json"] }
 sqlparser = { workspace = true }
 sha2 = { workspace = true }
 uuid = { workspace = true }
@@ -22,12 +22,13 @@ parking_lot = { workspace = true }
 dotenvy = { workspace = true }
 utoipa = { workspace = true }
 # rusqlite removed in favor of sqlx/sqlite for unified sqlite3 linking
-hnsw_rs = { workspace = true }
+# hnsw_rs kept at workspace root for now; index adapter may be toggled later
 qdrant-client = { workspace = true, optional = true }
 time = { workspace = true }
 either = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
+once_cell = { workspace = true }
 
 

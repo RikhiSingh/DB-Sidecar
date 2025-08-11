@@ -35,8 +35,8 @@ async fn main() -> anyhow::Result<()> {
             println!("version={}", v);
         }
         Command::Refresh => {
-            let v = jobs::execute_refresh(&cfg).await?;
-            println!("version={}", v);
+            let r = jobs::execute_refresh(&cfg).await?;
+            println!("version={} changed={:?}", r.version, r.changed_ids);
         }
     }
     Ok(())

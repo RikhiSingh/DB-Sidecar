@@ -73,18 +73,7 @@ impl SqliteRepo {
         Ok(map)
     }
 
-    pub fn upsert_object_stats(&self, stats: &[(&str, &str, &str)]) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
-        let tx = self.conn.transaction()?;
-        {
-            let mut stmt = tx.prepare("INSERT INTO object_stats(object_id, metric, value, collected_at) VALUES (?,?,?,?)")?;
-            for (object_id, metric, value) in stats {
-                stmt.execute(params![*object_id, *metric, *value, now])?;
-            }
-        }
-        tx.commit()?;
-        Ok(())
-    }
+    // Removed synchronous batch stats upsert; use async insert_object_stat in a loop instead.
 
     pub async fn insert_object_stat(&self, object_id: &str, metric: &str, value: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
@@ -98,69 +87,17 @@ impl SqliteRepo {
         Ok(())
     }
 
-    pub fn upsert_samples(&self, object_id: &str, column_names_json: &str, rows_json: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
-        self.conn.execute(
-            "INSERT INTO samples(object_id, column_names, rows_json, sampled_at) VALUES (?,?,?,?)",
-            params![object_id, column_names_json, rows_json, now],
-        )?;
-        Ok(())
-    }
+    // Removed legacy samples table writer; use object_samples async writer instead.
 
-    pub fn fetch_latest_samples(&self, object_id: &str) -> anyhow::Result<Option<(String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT column_names, rows_json, sampled_at FROM samples WHERE object_id = ? ORDER BY sampled_at DESC LIMIT 1")?;
-        let mut rows = stmt.query(params![object_id])?;
-        if let Some(row) = rows.next()? {
-            let col: String = row.get(0)?;
-            let rows_json: String = row.get(1)?;
-            let when: String = row.get(2)?;
-            Ok(Some((col, rows_json, when)))
-        } else {
-            Ok(None)
-        }
-    }
+    // Removed legacy samples reader.
 
-    pub fn fetch_stats_for_object(&self, object_id: &str, limit: usize) -> anyhow::Result<Vec<(String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT metric, value, collected_at FROM object_stats WHERE object_id = ? ORDER BY collected_at DESC LIMIT ?")?;
-        let rows = stmt.query_map(params![object_id, limit as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        })?;
-        let mut out = Vec::new();
-        for r in rows { out.push(r?); }
-        Ok(out)
-    }
+    // Removed sync stats reader; use async variant below.
 
-    pub fn fetch_objects_for_version(&self, version: i64) -> anyhow::Result<Vec<(String, String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT id, kind, qualified_name, canonical_ddl FROM objects WHERE version = ? ORDER BY qualified_name")?;
-        let rows = stmt.query_map(params![version], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))
-        })?;
-        let mut out = Vec::new();
-        for r in rows { out.push(r?); }
-        Ok(out)
-    }
+    // Removed sync object reader; use async variant below.
 
-    pub fn fetch_object_by_id(&self, id: &str) -> anyhow::Result<Option<(String, String, String)>> {
-        let mut stmt = self.conn.prepare("SELECT kind, qualified_name, canonical_ddl FROM objects WHERE id = ? ORDER BY version DESC LIMIT 1")?;
-        let mut rows = stmt.query(params![id])?;
-        if let Some(row) = rows.next()? {
-            let kind: String = row.get(0)?;
-            let qn: String = row.get(1)?;
-            let ddl: String = row.get(2)?;
-            Ok(Some((kind, qn, ddl)))
-        } else {
-            Ok(None)
-        }
-    }
+    // Removed sync object by id; use async variant below.
 
-    pub fn insert_object_stat(&self, object_id: &str, metric: &str, value: &str) -> anyhow::Result<()> {
-        let now = chrono::Utc::now().to_rfc3339();
-        self.conn.execute(
-            "INSERT INTO object_stats(object_id, metric, value, collected_at) VALUES (?,?,?,?)",
-            params![object_id, metric, value, now],
-        )?;
-        Ok(())
-    }
+    // Removed duplicate sync insert; use async variant above.
 
     pub async fn upsert_samples(&self, object_id: &str, columns_json: &str, rows_json: &str) -> anyhow::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();

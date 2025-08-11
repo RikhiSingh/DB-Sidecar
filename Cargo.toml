@@ -27,7 +27,7 @@ parking_lot = "0.12"
 dotenvy = "0.15"
 utoipa = { version = "4", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
-hnsw_rs = "0.1"
+# hnsw_rs temporarily unused in adapter; keep as future feature
 qdrant-client = "1"
 clap = { version = "4.5", features = ["derive"] }
 time = { version = "0.3", features = ["formatting"] }

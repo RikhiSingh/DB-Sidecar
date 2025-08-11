@@ -10,6 +10,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 dotenvy = { workspace = true }
 anyhow = { workspace = true }
+axum = { workspace = true }
 feytra-core = { path = "../../core" }
 feytra-api = { path = "../../api" }
 

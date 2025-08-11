@@ -10,15 +10,15 @@ pub struct ObjectStat {
 }
 
 pub async fn collect_basic_stats(pool: &Pool<Postgres>, schema: &str, table: &str) -> anyhow::Result<Vec<ObjectStat>> {
-    let est_rows = sqlx::query_scalar!(
+    let est_rows: i64 = sqlx::query_scalar(
         r#"
         SELECT reltuples::bigint FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND c.relname = $2
-        "#,
-        schema,
-        table
+        "#
     )
+    .bind(schema)
+    .bind(table)
     .fetch_optional(pool)
     .await?
     .unwrap_or(0i64);
@@ -41,15 +41,15 @@ pub struct TableStatsSummary {
 }
 
 pub async fn collect_pg_stats(pool: &Pool<Postgres>, schema: &str, table: &str) -> anyhow::Result<TableStatsSummary> {
-    let est_rows = sqlx::query_scalar!(
+    let est_rows: i64 = sqlx::query_scalar(
         r#"
         SELECT reltuples::bigint FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1 AND c.relname = $2
-        "#,
-        schema,
-        table
+        "#
     )
+    .bind(schema)
+    .bind(table)
     .fetch_optional(pool)
     .await?
     .unwrap_or(0i64);
