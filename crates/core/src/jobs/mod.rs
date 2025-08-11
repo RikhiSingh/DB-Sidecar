@@ -1,15 +1,17 @@
 use crate::catalog::pg::PgCatalogProvider;
 use crate::catalog::CatalogProvider;
+use crate::embed::providers::local_stub::LocalStubEmbeddingProvider;
+use crate::embed::{build_input_text, EmbeddingProvider};
 use crate::fingerprint::merkle::merkle_root;
 use crate::repo::sqlite::SqliteRepo;
 use crate::stats;
 use crate::Config;
 use once_cell::sync::OnceCell;
+use regex::Regex;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use tokio::time::{sleep, Duration};
 use tracing::info;
 use uuid::Uuid;
-use regex::Regex;
 
 pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
     let pool = get_pg_pool(cfg).await?;
@@ -37,6 +39,20 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
         .collect();
     repo.upsert_objects(version, &rows).await?;
     repo.insert_schema_version(version, &root).await?;
+
+    // Generate and persist embeddings for all objects
+    let provider = LocalStubEmbeddingProvider { dim: cfg.embed_dim };
+    let inputs: Vec<String> = objects
+        .iter()
+        .map(|o| build_input_text(&o.qualified_name, &o.canonical_ddl))
+        .collect();
+    let vectors = provider.embed_batch(&inputs).await?;
+    let _ = repo.clear_embeddings().await; // best-effort on bootstrap
+    for (o, vec) in objects.iter().zip(vectors.into_iter()) {
+        let _ = repo
+            .upsert_embedding(&o.id.to_string(), &vec, &cfg.embed_provider, cfg.embed_dim)
+            .await;
+    }
 
     // Collect stats and samples for tables
     for o in &objects {
@@ -135,6 +151,19 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
         .collect();
     repo.upsert_objects(version, &rows).await?;
     repo.insert_schema_version(version, &root).await?;
+
+    // Refresh embeddings (simple approach: recompute for all current objects)
+    let provider = LocalStubEmbeddingProvider { dim: cfg.embed_dim };
+    let inputs: Vec<String> = now_objects
+        .iter()
+        .map(|o| build_input_text(&o.qualified_name, &o.canonical_ddl))
+        .collect();
+    let vectors = provider.embed_batch(&inputs).await?;
+    for (o, vec) in now_objects.iter().zip(vectors.into_iter()) {
+        let _ = repo
+            .upsert_embedding(&o.id.to_string(), &vec, &cfg.embed_provider, cfg.embed_dim)
+            .await;
+    }
 
     // Collect stats and samples for tables (could optimize by changed set)
     let pool2 = get_pg_pool(cfg).await?;
