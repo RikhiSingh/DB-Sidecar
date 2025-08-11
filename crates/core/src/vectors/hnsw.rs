@@ -9,12 +9,22 @@ use std::sync::Arc;
 pub struct HnswIndex {
     inner: Arc<RwLock<Hnsw<f32, DistL2>>>,
     id_map: Arc<RwLock<HashMap<usize, String>>>,
+    next_id: Arc<RwLock<usize>>,
 }
 
 impl HnswIndex {
     pub fn new(dim: usize) -> Self {
-        let hnsw: Hnsw<f32, DistL2> = HnswBuilder::default().num_neighbours(16).max_nb_connection(32).max_item(10_000).ef(200).build(dim, DistL2 {});
-        Self { inner: Arc::new(RwLock::new(hnsw)), id_map: Arc::new(RwLock::new(HashMap::new())) }
+        let hnsw: Hnsw<f32, DistL2> = HnswBuilder::default()
+            .num_neighbours(16)
+            .max_nb_connection(32)
+            .max_item(100_000)
+            .ef(200)
+            .build(dim, DistL2 {});
+        Self {
+            inner: Arc::new(RwLock::new(hnsw)),
+            id_map: Arc::new(RwLock::new(HashMap::new())),
+            next_id: Arc::new(RwLock::new(0)),
+        }
     }
 }
 
@@ -22,10 +32,11 @@ impl HnswIndex {
 impl VectorIndex for HnswIndex {
     async fn upsert(&self, id: String, vector: Vec<f32>) -> anyhow::Result<()> {
         let point_id = {
-            let mut map = self.id_map.write();
-            let new_id = map.len();
-            map.insert(new_id, id);
-            new_id
+            let mut idx = self.next_id.write();
+            let pid = *idx;
+            *idx += 1;
+            self.id_map.write().insert(pid, id);
+            pid
         };
         self.inner.write().insert((&vector).into(), point_id)?;
         Ok(())

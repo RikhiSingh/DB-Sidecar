@@ -1,5 +1,6 @@
 use axum::{routing::{get, post}, Json, Router};
 use feytra-core::{jobs, Config};
+use feytra-core::repo::sqlite::SqliteRepo;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -38,6 +39,8 @@ pub fn router(cfg: Config) -> Router {
         .route("/refresh", post(refresh))
         .route("/schema/:version", get(get_schema))
         .route("/objects/:id", get(get_object))
+        .route("/objects/:id/stats", get(get_object_stats))
+        .route("/objects/:id/sample", get(get_object_sample))
         .route("/ask", post(ask))
         .route("/advice", post(advice))
         .route("/diff", get(diff))
@@ -55,18 +58,52 @@ pub async fn bootstrap(axum::extract::State(state): axum::extract::State<AppStat
 
 #[utoipa::path(post, path = "/v1/refresh")]
 pub async fn refresh(axum::extract::State(state): axum::extract::State<AppState>) -> Json<RefreshResponse> {
-    let version = jobs::execute_refresh(&state.cfg).await.unwrap_or(1);
-    Json(RefreshResponse { version, changed_ids: vec![] })
+    // For now, the job returns only version; TODO return changed ids from persistent diff table if stored
+    let res = jobs::execute_refresh(&state.cfg).await;
+    match res {
+        Ok(r) => Json(RefreshResponse { version: r.version, changed_ids: r.changed_ids }),
+        Err(_) => Json(RefreshResponse { version: 0, changed_ids: vec![] }),
+    }
 }
 
 #[utoipa::path(get, path = "/v1/schema/{version}")]
-pub async fn get_schema(axum::extract::Path(version): axum::extract::Path<i64>) -> Json<SchemaSummary> {
-    Json(SchemaSummary { version, objects: vec![] })
+pub async fn get_schema(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(version): axum::extract::Path<i64>) -> Json<SchemaSummary> {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
+    let rows = repo.fetch_objects_for_version(version).unwrap_or_default();
+    let objects: Vec<ObjectResponse> = rows.into_iter().map(|(id, kind, qualified_name, canonical_ddl)| {
+        ObjectResponse { id: Uuid::parse_str(&id).unwrap_or_else(|_| Uuid::new_v4()), kind, qualified_name, canonical_ddl }
+    }).collect();
+    Json(SchemaSummary { version, objects })
 }
 
 #[utoipa::path(get, path = "/v1/objects/{id}")]
-pub async fn get_object(axum::extract::Path(_id): axum::extract::Path<Uuid>) -> Json<ObjectResponse> {
-    Json(ObjectResponse { id: Uuid::new_v4(), kind: "table".into(), qualified_name: "public.example".into(), canonical_ddl: "CREATE TABLE public.example(id int);".into() })
+pub async fn get_object(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<ObjectResponse> {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
+    if let Some((kind, qualified_name, canonical_ddl)) = repo.fetch_object_by_id(&id.to_string()).unwrap_or(None) {
+        Json(ObjectResponse { id, kind, qualified_name, canonical_ddl })
+    } else {
+        Json(ObjectResponse { id, kind: "unknown".into(), qualified_name: "".into(), canonical_ddl: "".into() })
+    }
+}
+
+#[utoipa::path(get, path = "/v1/objects/{id}/stats")]
+pub async fn get_object_stats(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<serde_json::Value> {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
+    let stats = repo.fetch_stats_for_object(&id.to_string(), 500).unwrap_or_default();
+    let arr: Vec<serde_json::Value> = stats.into_iter().map(|(metric, value, ts)| serde_json::json!({"metric": metric, "value": value, "collected_at": ts})).collect();
+    Json(serde_json::json!({"object_id": id, "stats": arr}))
+}
+
+#[utoipa::path(get, path = "/v1/objects/{id}/sample")]
+pub async fn get_object_sample(axum::extract::State(state): axum::extract::State<AppState>, axum::extract::Path(id): axum::extract::Path<Uuid>) -> Json<serde_json::Value> {
+    let repo = SqliteRepo::open(&state.cfg.sidecar_db).unwrap();
+    if let Some((cols, rows, when)) = repo.fetch_latest_samples(&id.to_string()).unwrap_or(None) {
+        let column_names: Vec<String> = serde_json::from_str(&cols).unwrap_or_default();
+        let rows_json: serde_json::Value = serde_json::from_str(&rows).unwrap_or(serde_json::json!([]));
+        Json(serde_json::json!({"object_id": id, "sampled_at": when, "column_names": column_names, "rows": rows_json}))
+    } else {
+        Json(serde_json::json!({"object_id": id, "column_names": [], "rows": []}))
+    }
 }
 
 #[utoipa::path(post, path = "/v1/ask")]

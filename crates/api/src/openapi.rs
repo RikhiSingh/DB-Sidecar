@@ -10,6 +10,8 @@ use crate::routes::v1::{AskRequest, AskResponse, AdviceItem, DiffResponse, Objec
         crate::routes::v1::refresh,
         crate::routes::v1::get_schema,
         crate::routes::v1::get_object,
+        crate::routes::v1::get_object_stats,
+        crate::routes::v1::get_object_sample,
         crate::routes::v1::ask,
         crate::routes::v1::advice,
         crate::routes::v1::diff

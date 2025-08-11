@@ -48,4 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_objects_version ON objects(version);
 CREATE INDEX IF NOT EXISTS idx_embeddings_object ON embeddings(object_id);
 CREATE INDEX IF NOT EXISTS idx_stats_object ON object_stats(object_id);
 
+-- Optional sampled rows per object for preview and QA context
+CREATE TABLE IF NOT EXISTS samples (
+    object_id TEXT NOT NULL,
+    column_names TEXT NOT NULL, -- JSON array of column names
+    rows_json TEXT NOT NULL,    -- JSON array of row objects with masked values
+    sampled_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_samples_object ON samples(object_id);
+
 

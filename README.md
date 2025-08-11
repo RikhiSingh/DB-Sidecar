@@ -18,9 +18,27 @@ Steps
 
 1. Copy environment: `cp .env.example .env`
 2. Start Postgres: `make up`
-3. Serve API: `cargo run -p sidecar -- serve`
-4. Bootstrap snapshot: `curl -X POST localhost:8080/v1/bootstrap`
+3. Serve API:
+   - Unix: `make serve`
+   - Windows PowerShell: run `cargo run -p sidecar -- serve`
+4. Bootstrap snapshot:
+   - `curl -X POST localhost:8080/v1/bootstrap`
 5. Open Swagger at `http://localhost:8080/docs`
+6. Refresh later: `curl -X POST localhost:8080/v1/refresh`
+
+Commands
+
+- make up / make down: start/stop dockerized Postgres
+- make serve: run the API server (alias to `cargo run -p sidecar -- serve`)
+- make bootstrap: run bootstrap once via CLI
+- make refresh: run refresh via CLI
+- make test: `cargo test --all`
+- make lint: `cargo clippy --all -- -D warnings`
+- make fmt: `cargo fmt --all`
+- make build: `cargo build --all`
+- make docs: export OpenAPI JSON to `openapi.json`
+- make qdrant-up / qdrant-down: start/stop optional Qdrant
+- make psql: open psql shell in the dockerized Postgres
 
 Architecture
 
@@ -63,10 +81,18 @@ Embeddings & vectors
 - Default embedding provider: LocalStub (deterministic)
 - Default vector index: in-process HNSW; optional Qdrant via feature flag
 
+Feature flags
+
+- Enable Qdrant vector backend at build time:
+  - `cargo build --features feytra-core/qdrant`
+  - Requires `QDRANT_URL` and `VECTOR_BACKEND=qdrant`
+
 Security & privacy
 
 - Use read-only DB creds
 - Mask sensitive samples via config rules
+  - Configure `MASKING_RULES` as comma-separated regex=kind pairs, e.g. `MASKING_RULES="email=.*email.*,name=.*name.*,phone=.*phone.*"`
+  - Kinds supported: email, name, phone, id (generic). Others default to `***`.
 
 Roadmap
 
@@ -83,6 +109,11 @@ OpenAPI
 
 - Served at `/docs`. The raw spec is available at `/api-doc/openapi.json`.
 
+Endpoints
+
+- GET `/v1/objects/{id}/stats`: latest collected metrics per object (estimated_rows, pg_stats per column)
+- GET `/v1/objects/{id}/sample`: masked sample rows for the object
+
 Dev tips
 
 - Install Rust via `https://rustup.rs`.
@@ -90,3 +121,25 @@ Dev tips
 - Test: `cargo test --all`
 - Lint: `cargo clippy --all -- -D warnings`
 - Format: `cargo fmt --all`
+
+CLI
+
+- `sidecar serve` — start HTTP API on `PORT` (default 8080)
+- `sidecar bootstrap` — run snapshot, compute canonical DDL, hashes, Merkle root, persist version
+- `sidecar refresh` — detect diffs (event+poll; stub now), update changed objects, bump version
+
+Endpoints
+
+- `GET /health`
+- `POST /v1/bootstrap`
+- `POST /v1/refresh`
+- `GET /v1/schema/{version}`
+- `GET /v1/objects/{id}`
+- `POST /v1/ask`
+- `POST /v1/advice`
+- `GET /v1/diff?from=&to=`
+
+Change detection
+
+- Polling: background job compares latest snapshot with previous (by hashes) every `POLL_INTERVAL_SECS`.
+- NOTIFY: optional `ENABLE_NOTIFY=true` to listen on `NOTIFY_CHANNEL` (install event trigger with `INSTALL_PG_EVENT_TRIGGER=true`).

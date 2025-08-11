@@ -1,0 +1,90 @@
+Project: Feytra — Postgres Schema Intelligence Sidecar (Rust)
+
+Vision
+- Make databases easier to understand and use by providing AI-powered schema intelligence, Q&A, and advisor tooling as a sidecar. Start with PostgreSQL; extend to MySQL and others later.
+
+What Feytra is
+- A sidecar service (not a proxy) that snapshots/crawls DB catalogs, canonicalizes DDL per object, computes stable hashes, maintains a dependency graph, collects lightweight stats, builds embeddings for schema/context, and exposes REST endpoints for health, bootstrap, refresh, schema/objects, ask, advice, and diffs.
+
+v0.1 Goals (must-have)
+- Postgres-only. No live query proxying.
+- Bootstrap: crawl catalogs → canonicalize per-object DDL → per-object hash → Merkle root.
+- Change detection: periodic polling; NOTIFY wiring optional.
+- "Important data": rowcount estimates, pg_stats access, safe sampling (masked), stored in SQLite.
+- Vector store: in-process HNSW by default; Qdrant optional via feature flag.
+- REST API (Axum) with OpenAPI.
+- Minimal CLI: bootstrap, refresh, serve.
+- README-first docs; Docker Compose for Postgres.
+
+Non-goals (for v0.1)
+- No SELECT/INSERT live capture or proxying.
+- No write SQL generation. Q&A proposes read-only SQL + rationale.
+- No external LLM calls by default. Embedding provider is pluggable; default is local stub.
+
+Architecture (crates)
+- core: config, catalog (PgCatalogProvider), fingerprint (canonicalizer + Merkle), stats, graph, embed (EmbeddingProvider trait, LocalStub), vectors (VectorIndex trait, HNSW, optional Qdrant), repo (SQLite), jobs (bootstrap/refresh).
+- api: Axum router, OpenAPI, v1 routes.
+- sidecar (bin): CLI (serve/bootstrap/refresh) via clap.
+
+Data model (SQLite)
+- objects(id TEXT PK, kind TEXT, qualified_name TEXT UNIQUE, canonical_ddl TEXT, hash TEXT, version INTEGER, changed_at TEXT)
+- relations(src_id TEXT, dst_id TEXT, kind TEXT)
+- schema_versions(version INTEGER PK, merkle_root TEXT, created_at TEXT)
+- object_stats(object_id TEXT, metric TEXT, value TEXT, collected_at TEXT)
+- embeddings(object_id TEXT, embedding BLOB, provider TEXT, dim INTEGER, updated_at TEXT)
+- queries(object_id TEXT, normalized_sql TEXT, example BOOLEAN, added_at TEXT)
+
+Canonicalization rules
+- Lowercase unquoted identifiers; preserve quoted.
+- Normalize whitespace; sort order-insensitive parts stably (constraints, indexes, columns per ordinal, etc.).
+- Inline defaults; normalize now() → CURRENT_TIMESTAMP.
+- Include indexes/constraints in canonical form when available.
+- Hash: SHA256(canonical_ddl). Merkle: sorted (qualified_name, hash) → root.
+
+Endpoints (JSON)
+- GET /health
+- POST /v1/bootstrap
+- POST /v1/refresh
+- GET /v1/schema/{version}
+- GET /v1/objects/{id}
+- POST /v1/ask {question, role?}
+- POST /v1/advice
+- GET /v1/diff?from=&to=
+
+Config (.env)
+- DATABASE_URL, SIDECAR_DB, EMBED_PROVIDER, EMBED_DIM, VECTOR_BACKEND, QDRANT_URL, POLL_INTERVAL_SECS, SAMPLE_ROWS, MASKING_RULES, RUST_LOG, PORT
+
+How to run (developer)
+- make up (start Postgres) → cargo run -p sidecar -- serve → POST /v1/bootstrap → open /docs
+- Windows note: run cargo commands separately (no '&&').
+
+Key design choices
+- Sidecar: out-of-band, no critical path.
+- Store metadata in SQLite for portability.
+- Embeddings are provider-pluggable; default is deterministic local stub to avoid external calls.
+- Vector index pluggable: in-process HNSW default; Qdrant optional behind feature.
+
+Risks / Focus areas
+- Canonicalization completeness and stability across PG versions.
+- Accurate dependency graph (pg_depend) and inclusion of constraints/indexes.
+- Privacy for sampling; masking must be correct.
+- Change detection: NOTIFY vs polling consistency.
+
+Coding standards
+- Rust 1.78+, 2021 edition. Keep modules small and functions <20 operations where reasonable.
+- Prefer traits for pluggability (EmbeddingProvider, VectorIndex, CatalogProvider).
+- Error handling via anyhow/thiserror; tracing for logs; clippy -D warnings.
+
+Short-term backlog (next steps)
+- Implement SQLite persistence for objects/relations/stats/embeddings and wire GET routes.
+- Add polling job and optional NOTIFY listener.
+- Expand canonicalization to include constraints/indexes/views; add golden tests.
+- Implement HNSW persistence or periodic rebuild; add Qdrant adapter.
+- Flesh out /advice rules (naming, missing FK); /ask local template logic.
+
+Success criteria v0.1
+- make up → serve → POST /v1/bootstrap returns a version.
+- GET /v1/schema/{version} lists objects.
+- cargo test passes; clippy clean.
+
+

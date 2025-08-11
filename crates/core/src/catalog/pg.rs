@@ -1,5 +1,6 @@
 use crate::catalog::{CatalogObject, CatalogProvider, NeighborRef, ObjectKind};
 use crate::fingerprint::canonical::{canonicalize_table, hash_ddl};
+use crate::utils::ids::deterministic_object_id;
 use anyhow::Context;
 use sqlx::{Pool, Postgres, Row};
 use uuid::Uuid;
@@ -35,13 +36,13 @@ impl CatalogProvider for PgCatalogProvider {
         for r in rows {
             let schema_name: String = r.try_get("schema").unwrap_or_default();
             let object_name: String = r.try_get("name").unwrap_or_default();
-            let relkind: String = r.try_get::<String, _>("kind").unwrap_or_default();
+            let relkind: String = r.try_get::<String, _>("kind").unwrap_or_else(|_| "r".to_string());
             let qualified = format!("{}.{}", schema_name, object_name);
             let kind = match relkind.as_str() {
-                Some("r") => ObjectKind::Table,
-                Some("v") => ObjectKind::View,
-                Some("m") => ObjectKind::MaterializedView,
-                Some("i") => ObjectKind::Index,
+                "r" => ObjectKind::Table,
+                "v" => ObjectKind::View,
+                "m" => ObjectKind::MaterializedView,
+                "i" => ObjectKind::Index,
                 _ => ObjectKind::Table,
             };
 
@@ -50,7 +51,8 @@ impl CatalogProvider for PgCatalogProvider {
                 _ => format!("-- {} {}", match kind { ObjectKind::View => "VIEW", ObjectKind::MaterializedView => "MATERIALIZED VIEW", ObjectKind::Index => "INDEX", _ => "OBJECT" }, qualified),
             };
             let hash = hash_ddl(&ddl);
-            objects.push(CatalogObject { id: Uuid::new_v4(), kind, qualified_name: qualified, canonical_ddl: ddl, hash });
+            let id = deterministic_object_id(match kind { ObjectKind::Table=>"table", ObjectKind::View=>"view", ObjectKind::MaterializedView=>"materialized_view", ObjectKind::Index=>"index", ObjectKind::Function=>"function", ObjectKind::Schema=>"schema" }, &qualified);
+            objects.push(CatalogObject { id, kind, qualified_name: qualified, canonical_ddl: ddl, hash });
         }
 
         Ok(objects)

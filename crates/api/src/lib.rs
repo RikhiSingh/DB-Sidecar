@@ -8,6 +8,9 @@ pub mod routes;
 
 pub fn build_router(cfg: Config) -> Router {
     let api = routes::v1::router(cfg.clone());
+    // Background watchers (polling + optional NOTIFY)
+    let cfg_clone = cfg.clone();
+    tokio::spawn(async move { feytra_core::jobs::run_background_watchers(&cfg_clone).await });
     let health = axum::routing::get(|| async { axum::Json(serde_json::json!({"status":"ok"})) });
 
     let openapi = openapi::ApiDoc::openapi();

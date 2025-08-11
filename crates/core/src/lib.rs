@@ -7,6 +7,7 @@ pub mod embed;
 pub mod vectors;
 pub mod repo;
 pub mod jobs;
+pub mod utils;
 
 pub use config::Config;
 
