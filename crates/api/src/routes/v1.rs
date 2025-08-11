@@ -205,7 +205,11 @@ pub async fn ask(
     let dim = state.cfg.embed_dim;
     let index = HnswIndex::new(dim);
     for (object_id, vec) in &all {
-        let _ = index.upsert(object_id.clone(), vec.clone()).await;
+        // Only include vectors for objects we expose: tables/views/materialized views
+        if let Some((_kind, _name, _ddl)) = repo.fetch_object_by_id(object_id).await.unwrap_or(None)
+        {
+            let _ = index.upsert(object_id.clone(), vec.clone()).await;
+        }
     }
 
     // Create a query embedding using the same provider and recipe

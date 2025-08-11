@@ -1,7 +1,6 @@
 use crate::catalog::pg::PgCatalogProvider;
 use crate::catalog::CatalogProvider;
-use crate::embed::providers::local_stub::LocalStubEmbeddingProvider;
-use crate::embed::{build_input_text, EmbeddingProvider};
+use crate::embed::{build_embedding_provider_from_config, build_input_text, EmbeddingProvider};
 use crate::fingerprint::merkle::merkle_root;
 use crate::repo::sqlite::SqliteRepo;
 use crate::stats;
@@ -41,7 +40,7 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
     repo.insert_schema_version(version, &root).await?;
 
     // Generate and persist embeddings for all objects
-    let provider = LocalStubEmbeddingProvider { dim: cfg.embed_dim };
+    let provider = build_embedding_provider_from_config(cfg)?;
     let inputs: Vec<String> = objects
         .iter()
         .map(|o| build_input_text(&o.qualified_name, &o.canonical_ddl))
@@ -153,7 +152,7 @@ pub async fn execute_refresh(cfg: &Config) -> anyhow::Result<RefreshResult> {
     repo.insert_schema_version(version, &root).await?;
 
     // Refresh embeddings (simple approach: recompute for all current objects)
-    let provider = LocalStubEmbeddingProvider { dim: cfg.embed_dim };
+    let provider = build_embedding_provider_from_config(cfg)?;
     let inputs: Vec<String> = now_objects
         .iter()
         .map(|o| build_input_text(&o.qualified_name, &o.canonical_ddl))

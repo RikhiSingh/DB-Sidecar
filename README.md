@@ -16,7 +16,7 @@ Prerequisites
 
 Steps
 
-1. Copy environment: `cp .env.example .env`
+1. Copy environment: `cp .env.example .env` (or create `.env` with the keys shown below)
 2. Start Postgres: `make up`
 3. Serve API:
    - Unix: `make serve`
@@ -76,10 +76,47 @@ Change detection
 
 - Event-driven via NOTIFY (optional) + periodic polling fallback
 
-Embeddings & vectors
+Embeddings, vectors & LLMs
 
-- Default embedding provider: LocalStub (deterministic)
-- Default vector index: in-process HNSW; optional Qdrant via feature flag
+- Embedding providers (pluggable via `EMBED_PROVIDER`):
+  - `local_stub` (default): deterministic pseudo-embeddings; no external calls
+  - `openai`: real embeddings via OpenAI (`OPENAI_API_KEY`, `OPENAI_EMBED_MODEL`, `EMBED_DIM`)
+- Vector index backends (`VECTOR_BACKEND`):
+  - `hnsw` (default, in-process ephemeral)
+  - `qdrant` (optional feature flag + `QDRANT_URL`)
+- LLM SQL proposal (planned): set `LLM_PROVIDER=openai` and `OPENAI_MODEL=...` to enable model-backed SQL generation in `/v1/ask`.
+
+Environment (.env)
+
+Required or useful keys:
+
+```
+DATABASE_URL=postgresql://admin:admin@localhost:5432/feytra
+SIDECAR_DB=./data/sidecar.sqlite
+
+POLL_INTERVAL_SECS=300
+ENABLE_NOTIFY=true
+NOTIFY_CHANNEL=feytra_ddl
+INSTALL_PG_EVENT_TRIGGER=false
+BOOTSTRAP_ON_START=true
+
+SAMPLE_ROWS=200
+MASKING_RULES="email=.*email.*,name=.*name.*,phone=.*phone.*"
+
+EMBED_PROVIDER=local_stub
+EMBED_DIM=768
+VECTOR_BACKEND=hnsw
+# QDRANT_URL=http://localhost:6333
+
+# OpenAI (optional)
+OPENAI_API_KEY=
+OPENAI_EMBED_MODEL=text-embedding-3-small
+OPENAI_MODEL=gpt-4o-mini
+LLM_PROVIDER=none
+
+PORT=8080
+RUST_LOG=info
+```
 
 Feature flags
 

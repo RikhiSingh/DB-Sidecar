@@ -8,6 +8,10 @@ pub struct Config {
     pub embed_dim: usize,
     pub vector_backend: String,
     pub qdrant_url: Option<String>,
+    pub llm_provider: String,
+    pub openai_api_key: Option<String>,
+    pub openai_model: Option<String>,
+    pub openai_embed_model: Option<String>,
     pub poll_interval_secs: u64,
     pub enable_notify: bool,
     pub notify_channel: String,
@@ -22,22 +26,47 @@ impl Config {
     pub fn from_env() -> Self {
         let _ = dotenvy::dotenv();
         Self {
-            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string()),
-            sidecar_db: std::env::var("SIDECAR_DB").unwrap_or_else(|_| "./data/sidecar.sqlite".to_string()),
-            embed_provider: std::env::var("EMBED_PROVIDER").unwrap_or_else(|_| "local_stub".to_string()),
-            embed_dim: std::env::var("EMBED_DIM").ok().and_then(|v| v.parse().ok()).unwrap_or(768),
+            database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+                "postgres://postgres:postgres@localhost:5432/postgres".to_string()
+            }),
+            sidecar_db: std::env::var("SIDECAR_DB")
+                .unwrap_or_else(|_| "./data/sidecar.sqlite".to_string()),
+            embed_provider: std::env::var("EMBED_PROVIDER")
+                .unwrap_or_else(|_| "local_stub".to_string()),
+            embed_dim: std::env::var("EMBED_DIM")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(768),
             vector_backend: std::env::var("VECTOR_BACKEND").unwrap_or_else(|_| "hnsw".to_string()),
             qdrant_url: std::env::var("QDRANT_URL").ok(),
-            poll_interval_secs: std::env::var("POLL_INTERVAL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(300),
-            enable_notify: std::env::var("ENABLE_NOTIFY").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(true),
-            notify_channel: std::env::var("NOTIFY_CHANNEL").unwrap_or_else(|_| "feytra_ddl".to_string()),
-            install_pg_event_trigger: std::env::var("INSTALL_PG_EVENT_TRIGGER").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false),
-            bootstrap_on_start: std::env::var("BOOTSTRAP_ON_START").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(true),
-            sample_rows: std::env::var("SAMPLE_ROWS").ok().and_then(|v| v.parse().ok()).unwrap_or(200),
+            llm_provider: std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "none".to_string()),
+            openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+            openai_model: std::env::var("OPENAI_MODEL").ok(),
+            openai_embed_model: std::env::var("OPENAI_EMBED_MODEL").ok(),
+            poll_interval_secs: std::env::var("POLL_INTERVAL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
+            enable_notify: std::env::var("ENABLE_NOTIFY")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(true),
+            notify_channel: std::env::var("NOTIFY_CHANNEL")
+                .unwrap_or_else(|_| "feytra_ddl".to_string()),
+            install_pg_event_trigger: std::env::var("INSTALL_PG_EVENT_TRIGGER")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
+            bootstrap_on_start: std::env::var("BOOTSTRAP_ON_START")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(true),
+            sample_rows: std::env::var("SAMPLE_ROWS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(200),
             masking_rules: std::env::var("MASKING_RULES").ok(),
-            port: std::env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8080),
+            port: std::env::var("PORT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8080),
         }
     }
 }
-
-
