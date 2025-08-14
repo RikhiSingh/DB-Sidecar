@@ -605,20 +605,6 @@ export default function Home(): ReactElement {
               <Link href="#api" className="text-slate-300 hover:text-white">
                 API
               </Link>
-              <Link
-                href="https://reactbits.dev/"
-                target="_blank"
-                className="text-slate-300 hover:text-white"
-              >
-                React Bits
-              </Link>
-              <Link
-                href="https://ui.aceternity.com/components"
-                target="_blank"
-                className="text-slate-300 hover:text-white"
-              >
-                Aceternity UI
-              </Link>
             </div>
           </div>
           <Separator className="my-6" />
