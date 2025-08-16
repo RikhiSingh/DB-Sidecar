@@ -1,212 +1,238 @@
-Feytra — Postgres Schema Intelligence Sidecar (Rust)
+# Feytra: Cursor for Databases
 
-Feytra is a Rust sidecar service that provides schema intelligence for PostgreSQL. It captures DDL changes and lightweight stats, builds canonical DDL hashes and a Merkle root, maintains a dependency graph, creates embeddings for schema/context packs, and exposes REST endpoints for Q&A and advisor suggestions.
+> **"Cursor but for databases"** - An intelligent CLI assistant that sits next to your database and provides natural language Q&A about your schema, relationships, and data structure.
 
-Why
+[![Rust](https://img.shields.io/badge/rust-stable-brightgreen.svg)](https://www.rust-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-- Natural-language Q&A and advisor features benefit from structured, canonicalized schema context and embeddings.
-- Operates as a sidecar outside the critical path. No proxying for queries.
+## 🎯 What is Feytra?
 
-Quick start
+Feytra is an AI-powered database schema intelligence tool that runs as a sidecar next to your database. Think of it as "Cursor but for databases" - you can ask natural language questions about your schema and get intelligent, contextual answers.
 
-Prerequisites
+### Key Features
 
-- Rust 1.78+
-- Docker (optional, for local PostgreSQL)
+- 🤖 **AI-Powered Q&A**: Ask questions like "What tables do I have?" or "Show me relationships between users and orders"
+- 🔄 **Automatic Schema Detection**: Automatically detects schema changes via DDL hashing
+- ⚡ **Zero Configuration**: Works with just your `DATABASE_URL`
+- 🚀 **Sidecar Deployment**: Runs alongside your database, not as a proxy
+- 🔍 **Vector Search**: Uses OpenAI embeddings for semantic schema understanding
 
-Steps
+## 🚀 Quick Start
 
-1. Copy environment: `cp .env.example .env` (or create `.env` with the keys shown below)
-2. Start your PostgreSQL database (or use Docker: `make up`)
-3. Initialize schema intelligence: `cargo run -p sidecar -- init`
-4. Start the AI assistant: `cargo run -p sidecar -- chat`
-5. Ask questions about your database!
-
-Example session:
+### 1. Install Feytra
 
 ```bash
-$ cargo run -p sidecar -- chat
-🤖 Welcome to Feytra - Your AI Database Assistant!
-==================================================
-Database: postgresql://admin:admin@localhost:5432/myapp
-Intelligence: local_stub embeddings, hnsw vectors
+# Clone the repository
+git clone https://github.com/your-username/feytra.git
+cd feytra
 
-✅ Schema intelligence ready! Found 15 objects
-
-💬 Ask me anything about your database schema!
-Examples:
-  • "What tables do I have?"
-  • "Show me the structure of the users table"
-  • "What are the relationships between tables?"
-  • "Find tables related to authentication"
-  • "refresh" - Update schema data
-  • "exit" - End session
-
-💭 What tables do I have?
-🤔 📋 Found 8 tables:
-
-1. public.users
-2. public.orders
-3. public.products
-4. public.categories
-5. public.order_items
-6. public.user_sessions
-7. public.product_reviews
-8. public.shipping_addresses
+# Build the project
+cargo build --release
 ```
 
-Commands
+### 2. Configure Your Environment
 
-## CLI Commands
+Create a `.env` file in your project root:
 
-- `cargo run -p sidecar -- chat` - Start AI database assistant (main feature)
-- `cargo run -p sidecar -- init` - Initialize schema intelligence
-- `cargo run -p sidecar -- refresh` - Refresh schema data
+```env
+# Database Configuration
+DATABASE_URL=postgresql://username:password@localhost:5432/your_database
 
-## Development Commands
+# AI Configuration (Optional - for enhanced responses)
+OPENAI_API_KEY=your_openai_api_key
+LLM_PROVIDER=openai
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_EMBED_MODEL=text-embedding-3-small
 
-- make up / make down: start/stop dockerized Postgres
-- make test: `cargo test --all`
-- make lint: `cargo clippy --all -- -D warnings`
-- make fmt: `cargo fmt --all`
-- make build: `cargo build --all`
-- make qdrant-up / qdrant-down: start/stop optional Qdrant
-- make psql: open psql shell in the dockerized Postgres
-
-Architecture
-
-Components
-
-- catalog: Postgres connectors, snapshotting, polling, canonical DDL builders
-- fingerprint: canonicalizer + per-object hash + Merkle tree
-- stats: rowcounts, pg_stats, masked sampling
-- graph: dependency graph (tables, FKs, views, indexes)
-- embed: text builders + pluggable embedding backends (LocalStub, OpenAI, Gemini)
-- vectors: HNSW adapter + optional Qdrant client (feature flag)
-- api: Axum handlers + OpenAPI
-- jobs: bootstrap, refresh, periodic health scan
-- config: .env/env vars
-
-Data model (SQLite)
-
-- objects(id TEXT PK, kind TEXT, qualified_name TEXT UNIQUE, canonical_ddl TEXT, hash TEXT, version INTEGER, changed_at TEXT)
-- relations(src_id TEXT, dst_id TEXT, kind TEXT)
-- schema_versions(version INTEGER PK, merkle_root TEXT, created_at TEXT)
-- object_stats(object_id TEXT, metric TEXT, value TEXT, collected_at TEXT)
-- embeddings(object_id TEXT, embedding BLOB, provider TEXT, dim INTEGER, updated_at TEXT)
-- queries(object_id TEXT, normalized_sql TEXT, example BOOLEAN, added_at TEXT)
-
-Canonicalization & hashing
-
-- Lowercase unquoted identifiers, preserve quoted
-- Normalize whitespace; stably sort order-insensitive parts
-- Inline defaults; normalize now() to CURRENT_TIMESTAMP
-- Include indexes/constraints in canonical form
-- Hash: SHA256(canonical_ddl)
-- Merkle: sorted (qualified_name, hash) → tree root stored per version
-
-Change detection
-
-- Event-driven via NOTIFY (optional) + periodic polling fallback
-
-Embeddings, vectors & LLMs
-
-- Embedding providers (pluggable via `EMBED_PROVIDER`):
-  - `local_stub` (default): deterministic pseudo-embeddings; no external calls
-  - `openai`: real embeddings via OpenAI (`OPENAI_API_KEY`, `OPENAI_EMBED_MODEL`, `EMBED_DIM`)
-- Vector index backends (`VECTOR_BACKEND`):
-  - `hnsw` (default, in-process ephemeral)
-  - `qdrant` (optional feature flag + `QDRANT_URL`)
-- LLM SQL proposal (planned): set `LLM_PROVIDER=openai` and `OPENAI_MODEL=...` to enable model-backed SQL generation in `/v1/ask`.
-
-Environment (.env)
-
-Required or useful keys:
-
-```
-DATABASE_URL=postgresql://admin:admin@localhost:5432/feytra
+# Feytra Configuration
 SIDECAR_DB=./data/sidecar.sqlite
-
-POLL_INTERVAL_SECS=300
-ENABLE_NOTIFY=true
-NOTIFY_CHANNEL=feytra_ddl
-INSTALL_PG_EVENT_TRIGGER=false
-BOOTSTRAP_ON_START=true
-
-SAMPLE_ROWS=200
-MASKING_RULES="email=.*email.*,name=.*name.*,phone=.*phone.*"
-
-EMBED_PROVIDER=local_stub
+EMBED_PROVIDER=openai
 EMBED_DIM=768
 VECTOR_BACKEND=hnsw
-# QDRANT_URL=http://localhost:6333
-
-# OpenAI (optional)
-OPENAI_API_KEY=
-OPENAI_EMBED_MODEL=text-embedding-3-small
-OPENAI_MODEL=gpt-4o-mini
-LLM_PROVIDER=none
-
-PORT=8080
 RUST_LOG=info
 ```
 
-Feature flags
+### 3. Start Chatting
 
-- Enable Qdrant vector backend at build time:
-  - `cargo build --features feytra-core/qdrant`
-  - Requires `QDRANT_URL` and `VECTOR_BACKEND=qdrant`
+```bash
+# Start interactive chat mode
+cargo run -p sidecar -- chat
+```
 
-Security & privacy
+Feytra will automatically:
 
-- Use read-only DB creds
-- Mask sensitive samples via config rules
-  - Configure `MASKING_RULES` as comma-separated regex=kind pairs, e.g. `MASKING_RULES="email=.*email.*,name=.*name.*,phone=.*phone.*"`
-  - Kinds supported: email, name, phone, id (generic). Others default to `***`.
+- Connect to your database
+- Detect if schema intelligence exists
+- Initialize embeddings if needed
+- Start the interactive Q&A session
 
-Roadmap
+### 4. Ask Questions
 
-- v0.2: minimal /ask NL→SQL using local rule/template
-- v0.3: BYOK for providers (OpenAI/Gemini) + Qdrant default
-- v0.4: MySQL connector (same traits)
-- v0.5: advisor index analysis, unused index detection
+```
+💭 What tables do I have?
+🤖 You have 5 tables: users, products, categories, orders, order_items...
 
-License
+💭 Show me the relationships between users and orders
+🤖 Users and orders are related through a foreign key relationship...
 
-Apache-2.0
+💭 Find all authentication-related tables
+🤖 Based on your schema, I found these authentication-related objects...
+```
 
-OpenAPI
+## 📋 CLI Commands
 
-- Served at `/docs`. The raw spec is available at `/api-doc/openapi.json`.
+### Primary Commands
 
-Endpoints
+- `feytra chat` - Interactive Q&A mode (main usage)
+- `feytra init` - Manual schema initialization
+- `feytra refresh` - Force schema refresh
+- `feytra serve` - Start API server (optional)
 
-- GET `/v1/objects/{id}/stats`: latest collected metrics per object (estimated_rows, pg_stats per column)
-- GET `/v1/objects/{id}/sample`: masked sample rows for the object
+### Chat Commands
 
-Dev tips
-
-- Install Rust via `https://rustup.rs`.
-- Build: `cargo build --all`
-- Test: `cargo test --all`
-- Lint: `cargo clippy --all -- -D warnings`
-- Format: `cargo fmt --all`
-
-CLI
-
-- `feytra chat` — start AI database assistant (main feature)
-- `feytra init` — initialize schema intelligence
-- `feytra refresh` — refresh schema data
-
-Chat Commands
-
-- `tables` or `list tables` - Show all tables
-- `schema` or `schema info` - Database overview
+- **Natural language questions** about your schema
+- `help` - Show available commands
+- `tables` - List all tables
+- `schema` - Show schema overview
 - `refresh` - Update schema data
-- `help` or `?` - Show help
-- `exit` or `quit` - End session
+- `exit` - End session
 
-Change detection
+## 🔄 Automatic Schema Management
 
-- Polling: background job compares latest snapshot with previous (by hashes) every `POLL_INTERVAL_SECS`.
-- NOTIFY: optional `ENABLE_NOTIFY=true` to listen on `NOTIFY_CHANNEL` (install event trigger with `INSTALL_PG_EVENT_TRIGGER=true`).
+Feytra automatically manages your schema intelligence:
+
+1. **Startup Check**: Compares current DDL hashes with stored hashes
+2. **Change Detection**: If hashes don't match, automatically re-vectorizes
+3. **Smart Updates**: Only processes changed schema objects
+4. **Persistent Storage**: Maintains intelligence across restarts
+
+## 🏗️ Architecture
+
+### Core Components
+
+- **Schema Intelligence Engine**: Automatic DDL detection and vectorization
+- **AI-Powered Q&A**: OpenAI integration for natural language responses
+- **Sidecar Deployment**: Non-intrusive, runs alongside your database
+
+### Technology Stack
+
+- **Rust**: High-performance, memory-safe language
+- **PostgreSQL**: Primary database support
+- **OpenAI**: Embedding generation and LLM responses
+- **HNSW**: Fast vector similarity search
+- **SQLite**: Local metadata storage
+
+## 🎯 Use Cases
+
+### For Developers
+
+- **Schema Exploration**: Quickly understand unfamiliar databases
+- **Relationship Discovery**: Find connections between tables
+- **Documentation**: Get natural language explanations of schema objects
+
+### For DevOps
+
+- **Schema Monitoring**: Track changes across environments
+- **Deployment Validation**: Ensure schema consistency
+- **Troubleshooting**: Understand database structure quickly
+
+### For Data Analysts
+
+- **Data Discovery**: Explore database structure
+- **Query Planning**: Understand available data sources
+- **Report Generation**: Identify relevant tables and relationships
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable             | Description                             | Default                |
+| -------------------- | --------------------------------------- | ---------------------- |
+| `DATABASE_URL`       | PostgreSQL connection string            | Required               |
+| `OPENAI_API_KEY`     | OpenAI API key for AI features          | Optional               |
+| `LLM_PROVIDER`       | LLM provider (openai)                   | None                   |
+| `OPENAI_MODEL`       | OpenAI model for responses              | gpt-4o-mini            |
+| `OPENAI_EMBED_MODEL` | OpenAI embedding model                  | text-embedding-3-small |
+| `SIDECAR_DB`         | SQLite metadata database path           | ./data/sidecar.sqlite  |
+| `EMBED_PROVIDER`     | Embedding provider (openai, local_stub) | local_stub             |
+| `EMBED_DIM`          | Embedding dimensions                    | 768                    |
+| `VECTOR_BACKEND`     | Vector search backend                   | hnsw                   |
+| `RUST_LOG`           | Logging level                           | info                   |
+
+## 🚀 Deployment
+
+### VM/Server Deployment (Recommended)
+
+1. **Install on the same machine as your database**
+2. **Configure environment variables**
+3. **Run as a service**:
+
+```bash
+# Create systemd service
+sudo cp feytra.service /etc/systemd/system/
+sudo systemctl enable feytra
+sudo systemctl start feytra
+```
+
+### Docker Deployment
+
+```bash
+# Build and run
+docker build -t feytra .
+docker run -d --name feytra \
+  -e DATABASE_URL=postgresql://user:pass@host:5432/db \
+  -v ./data:/app/data \
+  feytra
+```
+
+### Local Development
+
+```bash
+# Run directly
+cargo run -p sidecar -- chat
+
+# Or build and run
+cargo build --release
+./target/release/sidecar chat
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```bash
+# Clone and setup
+git clone https://github.com/your-username/feytra.git
+cd feytra
+
+# Install dependencies
+cargo build
+
+# Run tests
+cargo test
+
+# Start development
+cargo run -p sidecar -- chat
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🗺️ Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for our development roadmap and future plans.
+
+## 💡 Why "Cursor for Databases"?
+
+Just like Cursor revolutionized code editing with AI, Feytra aims to revolutionize database schema understanding with AI. The goal is to make databases as easy to understand and work with as code is with Cursor.
+
+## 🆘 Support
+
+- **Issues**: [GitHub Issues](https://github.com/RikhiSingh/feytra/issues)
+
+---
+
+**Made with ❤️ for developers who love databases**

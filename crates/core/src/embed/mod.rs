@@ -38,3 +38,24 @@ pub fn build_embedding_provider_from_config(
         )),
     }
 }
+
+pub fn build_llm_provider_from_config(
+    cfg: &crate::Config,
+) -> anyhow::Result<Option<providers::openai::OpenAiLlmProvider>> {
+    if cfg.llm_provider == "openai" {
+        let api_key = cfg
+            .openai_api_key
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("OPENAI_API_KEY not set"))?;
+        let model = cfg
+            .openai_model
+            .clone()
+            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+        Ok(Some(providers::openai::OpenAiLlmProvider {
+            api_key,
+            model,
+        }))
+    } else {
+        Ok(None)
+    }
+}

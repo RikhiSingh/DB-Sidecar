@@ -71,17 +71,38 @@ async fn run_chat_mode(cfg: &Config) -> anyhow::Result<()> {
         "Intelligence: {} embeddings, {} vectors",
         cfg.embed_provider, cfg.vector_backend
     );
+
+    // Check if AI LLM is enabled
+    if let Ok(Some(_)) = feytra_core::embed::build_llm_provider_from_config(cfg) {
+        println!("🤖 AI Assistant: Enabled (OpenAI)");
+    } else {
+        println!("🤖 AI Assistant: Disabled (set LLM_PROVIDER=openai to enable)");
+    }
     println!();
 
-    // Check if we need to initialize
+    // Check if we need to initialize or update
     let repo = feytra_core::repo::sqlite::SqliteRepo::open(&cfg.sidecar_db).await?;
     repo.migrate().await?;
 
+    // Check if embeddings exist and are up-to-date
     let embeddings = repo.fetch_all_embeddings().await.unwrap_or_default();
+    println!(
+        "🔍 Debug: After startup, found {} embeddings",
+        embeddings.len()
+    );
+
     if embeddings.is_empty() {
         println!("⚠️  No schema intelligence found. Running initialization...");
         match jobs::execute_bootstrap(cfg).await {
-            Ok(version) => println!("✅ Initialized! Version: {}", version),
+            Ok(version) => {
+                println!("✅ Initialized! Version: {}", version);
+                // Check embeddings again after initialization
+                let embeddings_after = repo.fetch_all_embeddings().await.unwrap_or_default();
+                println!(
+                    "🔍 Debug: After initialization, found {} embeddings",
+                    embeddings_after.len()
+                );
+            }
             Err(e) => {
                 println!(
                     "❌ Initialization failed: {}. You can run 'feytra init' manually.",
@@ -91,10 +112,37 @@ async fn run_chat_mode(cfg: &Config) -> anyhow::Result<()> {
             }
         }
     } else {
-        println!(
-            "✅ Schema intelligence ready! Found {} objects",
-            embeddings.len()
-        );
+        // Check if schema has changed by comparing hashes
+        println!("🔍 Checking if schema is up-to-date...");
+        match check_schema_freshness(cfg, &repo).await {
+            Ok(is_fresh) => {
+                if is_fresh {
+                    println!(
+                        "✅ Schema intelligence ready! Found {} objects (up-to-date)",
+                        embeddings.len()
+                    );
+                } else {
+                    println!("🔄 Schema has changed. Updating vectors...");
+                    match jobs::execute_refresh(cfg).await {
+                        Ok(result) => println!(
+                            "✅ Updated! Version: {}, Changed: {:?}",
+                            result.version, result.changed_ids
+                        ),
+                        Err(e) => println!("❌ Update failed: {}", e),
+                    }
+                }
+            }
+            Err(e) => {
+                println!(
+                    "⚠️  Could not verify schema freshness: {}. Using existing data.",
+                    e
+                );
+                println!(
+                    "✅ Schema intelligence ready! Found {} objects",
+                    embeddings.len()
+                );
+            }
+        }
     }
 
     println!("\n💬 Ask me anything about your database schema!");
@@ -150,6 +198,54 @@ async fn run_chat_mode(cfg: &Config) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+async fn check_schema_freshness(
+    cfg: &Config,
+    repo: &feytra_core::repo::sqlite::SqliteRepo,
+) -> anyhow::Result<bool> {
+    use feytra_core::catalog::{pg::PgCatalogProvider, CatalogProvider};
+    use sqlx::PgPool;
+
+    // Get current database schema hashes
+    let pool = PgPool::connect(&cfg.database_url).await?;
+    let provider = PgCatalogProvider::new(pool);
+    let current_objects = provider.snapshot().await?;
+
+    // Get stored hashes from SQLite
+    let stored_hashes = repo.fetch_latest_hashes().await?;
+
+    // If no stored hashes, schema is not fresh (needs initialization)
+    if stored_hashes.is_empty() {
+        return Ok(false);
+    }
+
+    // Compare current vs stored hashes
+    for obj in &current_objects {
+        if let Some(stored_hash) = stored_hashes.get(&obj.qualified_name) {
+            if stored_hash != &obj.hash {
+                // Hash mismatch - schema has changed
+                return Ok(false);
+            }
+        } else {
+            // New object found - schema has changed
+            return Ok(false);
+        }
+    }
+
+    // Check if any stored objects no longer exist
+    for stored_name in stored_hashes.keys() {
+        if !current_objects
+            .iter()
+            .any(|obj| &obj.qualified_name == stored_name)
+        {
+            // Object removed - schema has changed
+            return Ok(false);
+        }
+    }
+
+    // All hashes match - schema is fresh
+    Ok(true)
 }
 
 async fn process_question(cfg: &Config, question: &str) -> anyhow::Result<String> {
@@ -241,7 +337,7 @@ async fn get_schema_info(cfg: &Config) -> anyhow::Result<String> {
 
 async fn answer_with_vectors(cfg: &Config, question: &str) -> anyhow::Result<String> {
     use feytra_core::{
-        embed::build_embedding_provider_from_config,
+        embed::{build_embedding_provider_from_config, build_llm_provider_from_config},
         repo::sqlite::SqliteRepo,
         vectors::{hnsw::HnswIndex, VectorIndex},
     };
@@ -258,8 +354,19 @@ async fn answer_with_vectors(cfg: &Config, question: &str) -> anyhow::Result<Str
     let repo = SqliteRepo::open(&cfg.sidecar_db).await?;
     let embeddings = repo.fetch_all_embeddings().await?;
 
+    println!(
+        "🔍 Debug: Found {} embeddings in database",
+        embeddings.len()
+    );
+    if !embeddings.is_empty() {
+        println!(
+            "🔍 Debug: First embedding has {} dimensions",
+            embeddings[0].1.len()
+        );
+    }
+
     if embeddings.is_empty() {
-        return Ok("No schema information available. Try running 'feytra init' first.".to_string());
+        return Ok("No schema information available. This might indicate an initialization issue. Try running 'feytra init' manually or check your database connection.".to_string());
     }
 
     // Build HNSW index and search
@@ -276,29 +383,46 @@ async fn answer_with_vectors(cfg: &Config, question: &str) -> anyhow::Result<Str
     }
 
     // Get object details for the top results
-    let mut answer = "🔍 Here are the most relevant schema objects:\n\n".to_string();
-
+    let mut context_objects = Vec::new();
     for (object_id, score) in results {
         if let Ok(Some((kind, qualified_name, canonical_ddl))) =
             repo.fetch_object_by_id(&object_id).await
         {
-            answer.push_str(&format!(
-                "📋 {} (relevance: {:.1}%)\n",
+            context_objects.push(format!(
+                "Object: {} (Type: {}, Relevance: {:.1}%)\nDDL:\n{}\n",
                 qualified_name,
-                score * 100.0
+                kind,
+                score * 100.0,
+                canonical_ddl
             ));
-            answer.push_str(&format!("   Type: {}\n", kind));
-
-            if !canonical_ddl.is_empty() {
-                let ddl_preview = if canonical_ddl.len() > 150 {
-                    format!("{}...", &canonical_ddl[..150])
-                } else {
-                    canonical_ddl.clone()
-                };
-                answer.push_str(&format!("   Structure: {}\n", ddl_preview));
-            }
-            answer.push_str("\n");
         }
+    }
+
+    // Try to use AI LLM if available
+    if let Ok(Some(llm_provider)) = build_llm_provider_from_config(cfg) {
+        let context = context_objects.join("\n");
+        match llm_provider.generate_response(question, &context).await {
+            Ok(ai_response) => {
+                let mut answer = format!("🤖 AI Response:\n\n{}\n\n", ai_response);
+                answer.push_str("📋 Relevant Schema Objects:\n");
+                for (i, obj) in context_objects.iter().enumerate() {
+                    answer.push_str(&format!("{}. {}", i + 1, obj.lines().next().unwrap_or("")));
+                }
+                return Ok(answer);
+            }
+            Err(e) => {
+                println!(
+                    "⚠️  AI response failed: {}. Falling back to basic response.",
+                    e
+                );
+            }
+        }
+    }
+
+    // Fallback to basic response
+    let mut answer = "🔍 Here are the most relevant schema objects:\n\n".to_string();
+    for (i, obj) in context_objects.iter().enumerate() {
+        answer.push_str(&format!("{}. {}", i + 1, obj));
     }
 
     answer

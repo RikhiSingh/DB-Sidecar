@@ -16,6 +16,10 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
     let pool = get_pg_pool(cfg).await?;
     let provider = PgCatalogProvider::new(pool.clone());
     let objects = provider.snapshot().await?;
+    println!("🔍 Debug: Snapshot found {} objects", objects.len());
+    for obj in &objects {
+        println!("🔍 Debug: Object: {} ({:?})", obj.qualified_name, obj.kind);
+    }
     let leaves: Vec<(String, String)> = objects
         .iter()
         .map(|o| (o.qualified_name.clone(), o.hash.clone()))
@@ -45,12 +49,26 @@ pub async fn execute_bootstrap(cfg: &Config) -> anyhow::Result<i64> {
         .iter()
         .map(|o| build_input_text(&o.qualified_name, &o.canonical_ddl))
         .collect();
+
+    println!(
+        "🔍 Debug: Generating embeddings for {} objects",
+        objects.len()
+    );
     let vectors = provider.embed_batch(&inputs).await?;
+    println!("🔍 Debug: Generated {} embeddings", vectors.len());
+
     let _ = repo.clear_embeddings().await; // best-effort on bootstrap
     for (o, vec) in objects.iter().zip(vectors.into_iter()) {
-        let _ = repo
+        match repo
             .upsert_embedding(&o.id.to_string(), &vec, &cfg.embed_provider, cfg.embed_dim)
-            .await;
+            .await
+        {
+            Ok(_) => println!("🔍 Debug: Stored embedding for {}", o.qualified_name),
+            Err(e) => println!(
+                "❌ Debug: Failed to store embedding for {}: {}",
+                o.qualified_name, e
+            ),
+        }
     }
 
     // Collect stats and samples for tables
