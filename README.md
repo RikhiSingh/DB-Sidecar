@@ -12,31 +12,64 @@ Quick start
 Prerequisites
 
 - Rust 1.78+
-- Docker
+- Docker (optional, for local PostgreSQL)
 
 Steps
 
 1. Copy environment: `cp .env.example .env` (or create `.env` with the keys shown below)
-2. Start Postgres: `make up`
-3. Serve API:
-   - Unix: `make serve`
-   - Windows PowerShell: run `cargo run -p sidecar -- serve`
-4. Bootstrap snapshot:
-   - `curl -X POST localhost:8080/v1/bootstrap`
-5. Open Swagger at `http://localhost:8080/docs`
-6. Refresh later: `curl -X POST localhost:8080/v1/refresh`
+2. Start your PostgreSQL database (or use Docker: `make up`)
+3. Initialize schema intelligence: `cargo run -p sidecar -- init`
+4. Start the AI assistant: `cargo run -p sidecar -- chat`
+5. Ask questions about your database!
+
+Example session:
+
+```bash
+$ cargo run -p sidecar -- chat
+🤖 Welcome to Feytra - Your AI Database Assistant!
+==================================================
+Database: postgresql://admin:admin@localhost:5432/myapp
+Intelligence: local_stub embeddings, hnsw vectors
+
+✅ Schema intelligence ready! Found 15 objects
+
+💬 Ask me anything about your database schema!
+Examples:
+  • "What tables do I have?"
+  • "Show me the structure of the users table"
+  • "What are the relationships between tables?"
+  • "Find tables related to authentication"
+  • "refresh" - Update schema data
+  • "exit" - End session
+
+💭 What tables do I have?
+🤔 📋 Found 8 tables:
+
+1. public.users
+2. public.orders
+3. public.products
+4. public.categories
+5. public.order_items
+6. public.user_sessions
+7. public.product_reviews
+8. public.shipping_addresses
+```
 
 Commands
 
+## CLI Commands
+
+- `cargo run -p sidecar -- chat` - Start AI database assistant (main feature)
+- `cargo run -p sidecar -- init` - Initialize schema intelligence
+- `cargo run -p sidecar -- refresh` - Refresh schema data
+
+## Development Commands
+
 - make up / make down: start/stop dockerized Postgres
-- make serve: run the API server (alias to `cargo run -p sidecar -- serve`)
-- make bootstrap: run bootstrap once via CLI
-- make refresh: run refresh via CLI
 - make test: `cargo test --all`
 - make lint: `cargo clippy --all -- -D warnings`
 - make fmt: `cargo fmt --all`
 - make build: `cargo build --all`
-- make docs: export OpenAPI JSON to `openapi.json`
 - make qdrant-up / qdrant-down: start/stop optional Qdrant
 - make psql: open psql shell in the dockerized Postgres
 
@@ -161,20 +194,17 @@ Dev tips
 
 CLI
 
-- `sidecar serve` — start HTTP API on `PORT` (default 8080)
-- `sidecar bootstrap` — run snapshot, compute canonical DDL, hashes, Merkle root, persist version
-- `sidecar refresh` — detect diffs (event+poll; stub now), update changed objects, bump version
+- `feytra chat` — start AI database assistant (main feature)
+- `feytra init` — initialize schema intelligence
+- `feytra refresh` — refresh schema data
 
-Endpoints
+Chat Commands
 
-- `GET /health`
-- `POST /v1/bootstrap`
-- `POST /v1/refresh`
-- `GET /v1/schema/{version}`
-- `GET /v1/objects/{id}`
-- `POST /v1/ask`
-- `POST /v1/advice`
-- `GET /v1/diff?from=&to=`
+- `tables` or `list tables` - Show all tables
+- `schema` or `schema info` - Database overview
+- `refresh` - Update schema data
+- `help` or `?` - Show help
+- `exit` or `quit` - End session
 
 Change detection
 

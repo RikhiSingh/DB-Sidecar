@@ -2477,6 +2477,7 @@ dependencies = [
  "dotenvy",
  "feytra-api",
  "feytra-core",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

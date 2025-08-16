@@ -1,30 +1,61 @@
-Project: Feytra — Postgres Schema Intelligence Sidecar (Rust)
+Project: Feytra — AI-Powered Database Schema Intelligence Sidecar (Rust)
 
 Vision
-- Make databases easier to understand and use by providing AI-powered schema intelligence, Q&A, and advisor tooling as a sidecar. Start with PostgreSQL; extend to MySQL and others later.
+- Make databases easier to understand and use by providing AI-powered schema intelligence, Q&A, and advisor tooling as a sidecar service. Start with PostgreSQL; extend to MySQL and others later.
 
 What Feytra is
-- A sidecar service (not a proxy) that snapshots/crawls DB catalogs, canonicalizes DDL per object, computes stable hashes, maintains a dependency graph, collects lightweight stats, builds embeddings for schema/context, and exposes REST endpoints for health, bootstrap, refresh, schema/objects, ask, advice, and diffs.
+- A sidecar service that runs on users' VMs/servers
+- Captures and snapshots database catalogs (DDL)
+- Canonicalizes DDL per object and computes stable hashes
+- Creates vector embeddings of schema objects for semantic search
+- Maintains a dependency graph and lightweight stats
+- Provides AI-powered Q&A through natural language interface
+- Exposes both CLI and REST API interfaces
+
+Core Architecture (3 Pillars)
+
+1. SIDECAR DEPLOYMENT
+- Runs on users' VMs/servers alongside their applications
+- Lightweight, resource-efficient service
+- No proxying of live queries - operates out-of-band
+- Configurable via environment variables
+- Supports Docker deployment
+
+2. DDL VECTORIZATION
+- Snapshot database catalogs and extract DDL
+- Canonicalize DDL (normalize whitespace, sort constraints, etc.)
+- Generate embeddings for each schema object
+- Store in local SQLite with vector search capabilities
+- Support multiple embedding providers (local_stub, OpenAI)
+- Maintain version history and change detection
+
+3. AI-POWERED Q&A
+- Natural language interface for database questions
+- Vector similarity search to find relevant schema objects
+- Semantic understanding of user queries
+- Provide contextual answers about schema structure
+- Support for relationships, indexes, constraints, etc.
 
 v0.1 Goals (must-have)
-- Postgres-only. No live query proxying.
-- Bootstrap: crawl catalogs → canonicalize per-object DDL → per-object hash → Merkle root.
-- Change detection: periodic polling; NOTIFY wiring optional.
-- "Important data": rowcount estimates, pg_stats access, safe sampling (masked), stored in SQLite.
-- Vector store: in-process HNSW by default; Qdrant optional via feature flag.
-- REST API (Axum) with OpenAPI.
-- Minimal CLI: bootstrap, refresh, serve.
-- README-first docs; Docker Compose for Postgres.
+- PostgreSQL-only support
+- Sidecar deployment model
+- DDL capture and canonicalization
+- Local vector storage (HNSW)
+- CLI interface with chat mode
+- Basic schema Q&A capabilities
+- Change detection via polling
+- SQLite metadata storage
 
 Non-goals (for v0.1)
-- No SELECT/INSERT live capture or proxying.
-- No write SQL generation. Q&A proposes read-only SQL + rationale.
-- No external LLM calls by default. Embedding provider is pluggable; default is local stub.
+- No live query proxying or capture
+- No write SQL generation
+- No external LLM calls by default
+- No complex schema visualization
 
 Architecture (crates)
-- core: config, catalog (PgCatalogProvider), fingerprint (canonicalizer + Merkle), stats, graph, embed (EmbeddingProvider trait, LocalStub), vectors (VectorIndex trait, HNSW, optional Qdrant), repo (SQLite), jobs (bootstrap/refresh).
-- api: Axum router, OpenAPI, v1 routes.
-- sidecar (bin): CLI (serve/bootstrap/refresh) via clap.
+- core: config, catalog (PgCatalogProvider), fingerprint (canonicalizer + Merkle), stats, graph, embed (EmbeddingProvider trait, LocalStub), vectors (VectorIndex trait, HNSW), repo (SQLite), jobs (bootstrap/refresh)
+- api: Axum router, OpenAPI, v1 routes (optional)
+- sidecar (bin): CLI with chat mode, init, refresh, serve commands
 
 Data model (SQLite)
 - objects(id TEXT PK, kind TEXT, qualified_name TEXT UNIQUE, canonical_ddl TEXT, hash TEXT, version INTEGER, changed_at TEXT)
@@ -34,58 +65,115 @@ Data model (SQLite)
 - embeddings(object_id TEXT, embedding BLOB, provider TEXT, dim INTEGER, updated_at TEXT)
 - queries(object_id TEXT, normalized_sql TEXT, example BOOLEAN, added_at TEXT)
 
-Canonicalization rules
-- Lowercase unquoted identifiers; preserve quoted.
-- Normalize whitespace; sort order-insensitive parts stably (constraints, indexes, columns per ordinal, etc.).
-- Inline defaults; normalize now() → CURRENT_TIMESTAMP.
-- Include indexes/constraints in canonical form when available.
-- Hash: SHA256(canonical_ddl). Merkle: sorted (qualified_name, hash) → root.
+DDL Vectorization Process
+1. Connect to PostgreSQL and snapshot catalog
+2. Extract DDL for each object (tables, views, indexes, etc.)
+3. Canonicalize DDL (normalize, sort, hash)
+4. Generate embeddings using configured provider
+5. Store in SQLite with vector search index
+6. Maintain version history for change detection
 
-Endpoints (JSON)
-- GET /health
-- POST /v1/bootstrap
-- POST /v1/refresh
-- GET /v1/schema/{version}
-- GET /v1/objects/{id}
-- POST /v1/ask {question, role?}
-- POST /v1/advice
-- GET /v1/diff?from=&to=
+AI Q&A Flow
+1. User asks natural language question via CLI
+2. Generate embedding for the question
+3. Search vector index for similar schema objects
+4. Retrieve relevant DDL and metadata
+5. Format response with context and relevance scores
+6. Provide helpful suggestions and examples
 
-Config (.env)
-- DATABASE_URL, SIDECAR_DB, EMBED_PROVIDER, EMBED_DIM, VECTOR_BACKEND, QDRANT_URL, POLL_INTERVAL_SECS, SAMPLE_ROWS, MASKING_RULES, RUST_LOG, PORT
+CLI Interface
+- `feytra chat` - Main AI assistant (like Cursor for databases)
+- `feytra init` - Initialize schema intelligence
+- `feytra refresh` - Refresh schema data
+- `feytra serve` - Start API server (optional)
 
-How to run (developer)
-- make up (start Postgres) → cargo run -p sidecar -- serve → POST /v1/bootstrap → open /docs
-- Windows note: run cargo commands separately (no '&&').
+Example Usage
+```bash
+$ cargo run -p sidecar -- chat
+🤖 Welcome to Feytra - Your AI Database Assistant!
+==================================================
+Database: postgresql://admin:admin@localhost:5432/myapp
+Intelligence: local_stub embeddings, hnsw vectors
 
-Key design choices
-- Sidecar: out-of-band, no critical path.
-- Store metadata in SQLite for portability.
-- Embeddings are provider-pluggable; default is deterministic local stub to avoid external calls.
-- Vector index pluggable: in-process HNSW default; Qdrant optional behind feature.
+✅ Schema intelligence ready! Found 15 objects
 
-Risks / Focus areas
-- Canonicalization completeness and stability across PG versions.
-- Accurate dependency graph (pg_depend) and inclusion of constraints/indexes.
-- Privacy for sampling; masking must be correct.
-- Change detection: NOTIFY vs polling consistency.
+💬 Ask me anything about your database schema!
+Examples:
+  • "What tables do I have?"
+  • "Show me the structure of the users table"
+  • "What are the relationships between tables?"
+  • "Find tables related to authentication"
 
-Coding standards
-- Rust 1.78+, 2021 edition. Keep modules small and functions <20 operations where reasonable.
-- Prefer traits for pluggability (EmbeddingProvider, VectorIndex, CatalogProvider).
-- Error handling via anyhow/thiserror; tracing for logs; clippy -D warnings.
+💭 What tables do I have?
+🤔 📋 Found 8 tables:
+1. public.users
+2. public.orders
+3. public.products
+4. public.categories
+5. public.order_items
+6. public.user_sessions
+7. public.product_reviews
+8. public.shipping_addresses
+```
 
-Short-term backlog (next steps)
-- Implement SQLite persistence for objects/relations/stats/embeddings and wire GET routes.
-- Add polling job and optional NOTIFY listener.
-- Expand canonicalization to include constraints/indexes/views; add golden tests.
-- Implement HNSW persistence or periodic rebuild; add Qdrant adapter.
-- Flesh out /advice rules (naming, missing FK); /ask local template logic.
+Configuration (.env)
+- DATABASE_URL: PostgreSQL connection string
+- SIDECAR_DB: SQLite metadata database path
+- EMBED_PROVIDER: local_stub (default) or openai
+- VECTOR_BACKEND: hnsw (default) or qdrant
+- EMBED_DIM: embedding dimensions (default 768)
+- SAMPLE_ROWS: rows to sample for stats
+- POLL_INTERVAL_SECS: refresh interval
+- RUST_LOG: logging level
 
-Success criteria v0.1
-- make up → serve → POST /v1/bootstrap returns a version.
-- GET /v1/schema/{version} lists objects.
-- cargo test passes; clippy clean.
+Deployment Options
+1. Direct binary on VM/server
+2. Docker container
+3. Kubernetes sidecar
+4. Local development
+
+Key Design Choices
+- Sidecar model: out-of-band, no critical path impact
+- Local vector storage: HNSW for fast similarity search
+- SQLite metadata: portable, no external dependencies
+- Embedding providers: pluggable, local_stub default
+- CLI-first: immediate value, API optional
+- Change detection: polling-based with optional NOTIFY
+
+Success Criteria v0.1
+- Deploy sidecar on VM with PostgreSQL
+- Initialize and vectorize schema DDL
+- Ask natural language questions via CLI
+- Get relevant, contextual answers
+- Handle schema changes gracefully
+- Zero external dependencies (local_stub embeddings)
+
+Roadmap
+- v0.2: Enhanced Q&A with better semantic understanding
+- v0.3: OpenAI integration for improved embeddings
+- v0.4: MySQL connector support
+- v0.5: Schema visualization and diagrams
+- v0.6: Performance recommendations
+- v0.7: Natural language to SQL generation
+
+Target Users
+- Developers working with unfamiliar databases
+- Database administrators monitoring schema changes
+- Data analysts exploring database structure
+- DevOps teams managing database deployments
+- Anyone who needs to understand database schemas quickly
+
+Value Proposition
+- "Cursor for databases" - natural language understanding of schema
+- Zero-config deployment as sidecar
+- Fast, local vector search for instant answers
+- No external API dependencies
+- Works with any PostgreSQL database
+- Maintains privacy (local processing)
 
 Notes:
-We are developing on Windows 11 and our IDE is VS Code
+- We are developing on Windows 11 and our IDE is VS Code
+- Focus on CLI experience as primary interface
+- Vector search enables semantic understanding of schema
+- Sidecar model ensures no impact on production databases
+- Local processing maintains data privacy and reduces latency
