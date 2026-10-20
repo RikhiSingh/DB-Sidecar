@@ -1,4 +1,4 @@
-# Feytra: Cursor for Databases
+# Database Sidecar previosuly called Feytra: Cursor for Databases
 
 > **"Cursor but for databases"** - An intelligent CLI assistant that sits next to your database and provides natural language Q&A about your schema, relationships, and data structure.
 
